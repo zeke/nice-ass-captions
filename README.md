@@ -1,4 +1,4 @@
-# nice-captions
+# nice-ass-captions
 
 Burn stylish captions into videos using [whisper](https://github.com/ggml-org/whisper.cpp) and [ffmpeg](https://ffmpeg.org). Runs locally. Powered by [ASS™](#the-ass-format).
 
@@ -24,7 +24,7 @@ Burn stylish captions into videos using [whisper](https://github.com/ggml-org/wh
 
 [Advanced SubStation Alpha](https://github.com/libass/libass/wiki/ASS-File-Format-Guide) (ASS) is an open subtitle format that has been the standard for high-quality fansubbing since 2003. It is far more expressive than SRT — supporting per-word timing, animations, transparency, rotation, blur, and vector drawing.
 
-[libass](https://github.com/libass/libass) is the open source rendering library for ASS. It is built into [ffmpeg](https://ffmpeg.org), [mpv](https://mpv.io), [VLC](https://www.videolan.org), and most serious media players. nice-captions uses libass via ffmpeg's `subtitles=` video filter to burn captions directly into the video frame.
+[libass](https://github.com/libass/libass) is the open source rendering library for ASS. It is built into [ffmpeg](https://ffmpeg.org), [mpv](https://mpv.io), [VLC](https://www.videolan.org), and most serious media players. nice-ass-captions uses libass via ffmpeg's `subtitles=` video filter to burn captions directly into the video frame.
 
 The specific ASS features this tool uses:
 
@@ -47,8 +47,8 @@ brew install whisper-cpp ffmpeg-full
 
 ```sh
 # Clone and run
-git clone https://github.com/zeke/nice-captions
-cd nice-captions
+git clone https://github.com/zeke/nice-ass-captions
+cd nice-ass-captions
 uv run caption video.mp4
 ```
 
@@ -59,24 +59,24 @@ Output is saved to `video-captioned.mp4` in the same directory as the input.
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
 | `-o, --output PATH` | `<input>-captioned.mp4` | Output file path |
-| `--model PATH\|NAME` | `~/.cache/nice-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
+| `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
 | `--prompt TEXT` | — | Initial prompt for whisper — improves accuracy for domain-specific proper nouns |
 | `--words N` | `5` | Words per caption chunk |
 | `--keep-tmp` | off | Keep intermediate `.wav` and `.wts` files |
 
 ## Models
 
-Models live in `~/.cache/nice-captions/`. Download with:
+Models live in `~/.cache/nice-ass-captions/`. Download with:
 
 ```sh
-mkdir -p ~/.cache/nice-captions
+mkdir -p ~/.cache/nice-ass-captions
 
 # medium.en — recommended (best accuracy/speed tradeoff)
-curl -L -o ~/.cache/nice-captions/ggml-medium.en.bin \
+curl -L -o ~/.cache/nice-ass-captions/ggml-medium.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin
 
 # small.en — faster, slightly less accurate
-curl -L -o ~/.cache/nice-captions/ggml-small.en.bin \
+curl -L -o ~/.cache/nice-ass-captions/ggml-small.en.bin \
   https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin
 ```
 

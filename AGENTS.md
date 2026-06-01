@@ -1,4 +1,4 @@
-# AGENTS.md — nice-captions
+# AGENTS.md — nice-ass-captions
 
 Instructions for agents working with this repo.
 
@@ -22,12 +22,12 @@ uv run caption video.mp4 --prompt "Cloudflare, WebAssembly, MyProductName"
 
 ## Model paths
 
-Default model directory: `~/.cache/nice-captions/`
+Default model directory: `~/.cache/nice-ass-captions/`
 
 Models on this machine (zeke's Mac):
-- `~/.cache/nice-captions/ggml-medium.en.bin` (1.5GB, recommended)
-- `~/.cache/nice-captions/ggml-small.en.bin` (466MB)
-- `~/.cache/nice-captions/ggml-base.en.bin` (142MB)
+- `~/.cache/nice-ass-captions/ggml-medium.en.bin` (1.5GB, recommended)
+- `~/.cache/nice-ass-captions/ggml-small.en.bin` (466MB)
+- `~/.cache/nice-ass-captions/ggml-base.en.bin` (142MB)
 
 The script auto-detects any `ggml-*.bin` file in that directory, preferring `medium.en`.
 
@@ -83,7 +83,7 @@ help the model transcribe them correctly too.
 ## Common failure modes
 
 **"No whisper model found"**
-Download one: `curl -L -o ~/.cache/nice-captions/ggml-medium.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin`
+Download one: `curl -L -o ~/.cache/nice-ass-captions/ggml-medium.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin`
 
 **"No ffmpeg with libass"**
 Install: `brew install ffmpeg-full` (the standard `ffmpeg` formula doesn't include libass)

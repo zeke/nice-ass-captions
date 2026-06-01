@@ -62,7 +62,7 @@ COMPOUND_MERGES = [
 # Default model location
 # ---------------------------------------------------------------------------
 
-MODEL_DIR  = Path.home() / ".cache" / "nice-captions"
+MODEL_DIR  = Path.home() / ".cache" / "nice-ass-captions"
 MODEL_NAME = "ggml-medium.en.bin"
 
 MODEL_SIZES = {
@@ -500,7 +500,7 @@ def main():
     print(f"Output: {output_path}")
     print()
 
-    tmp_dir = tempfile.mkdtemp(prefix="nice-captions-")
+    tmp_dir = tempfile.mkdtemp(prefix="nice-ass-captions-")
     try:
         print("Extracting audio...")
         wav_path = extract_audio(input_path, tmp_dir)
