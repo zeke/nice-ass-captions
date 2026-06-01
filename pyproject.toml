@@ -1,0 +1,17 @@
+[project]
+name = "nice-captions"
+version = "0.1.0"
+description = "Burn stylish captions into videos using whisper and ffmpeg. Runs locally. Powered by ASS™"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["pysubs2>=1.8.0"]
+
+[project.urls]
+Homepage = "https://github.com/zeke/nice-captions"
+
+[project.scripts]
+caption = "caption:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

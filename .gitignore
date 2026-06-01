@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.wav
+*.wts
+*.ass
+*-captioned.mp4
+.DS_Store
+dist/
+*.egg-info/
