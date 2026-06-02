@@ -19,6 +19,7 @@ uv run caption video.mp4
 uv run caption video.mp4 --output out.mp4 --words 5 --model medium.en
 uv run caption video.mp4 --prompt "Cloudflare, WebAssembly, MyProductName"
 uv run caption video.mp4 --palette-colors
+uv run caption video.mp4 --position top
 ```
 
 ## Model paths
@@ -53,6 +54,7 @@ These are the main knobs. Edit them directly:
 | `COL_BOX` | top of file | Box color+opacity (ASS `&HAABBGGRR`) |
 | `MIN_CONTRAST` | top of file | Minimum contrast ratio for `--palette-colors` |
 | `WORDS_PER_CHUNK` | top of file | Words per line — 4-6 is the sweet spot |
+| `CAPTION_POSITION` | top of file | Default caption placement: `top`, `center`, or `bottom` |
 | `COMPOUND_MERGES` | top of file | Token sequences to join (see below) |
 
 ## Extending COMPOUND_MERGES

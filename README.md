@@ -51,6 +51,7 @@ brew install whisper-cpp ffmpeg-full
 git clone https://github.com/zeke/nice-ass-captions
 cd nice-ass-captions
 uv run caption video.mp4
+uv run caption video.mp4 --position top
 ```
 
 Output is saved to `video-captioned.mp4` in the same directory as the input.
@@ -89,6 +90,7 @@ biases transcription toward those terms, but it does not force them into the out
 | `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
 | `--prompt TEXT` | — | Initial prompt for whisper — improves accuracy for domain-specific proper nouns |
 | `--words N` | `5` | Words per caption chunk |
+| `--position top\|center\|bottom` | `bottom` | Caption position |
 | `--palette-colors` | off | Derive global text and background colors from the video palette |
 | `--keep-tmp` | off | Keep intermediate `.wav` and `.wts` files |
 
@@ -129,6 +131,7 @@ All visual parameters are constants at the top of `caption.py`:
 | `PAD_Y` | `28` | Vertical padding inside background box |
 | `CORNER_R` | `18` | Background box corner radius |
 | `MARGIN_BOTTOM` | `80` | Distance from bottom of frame to text |
+| `CAPTION_POSITION` | `bottom` | Default caption position: `top`, `center`, or `bottom` |
 | `ALPHA_DIM` | `&H99&` | Inactive word opacity (~60% opaque) |
 | `ALPHA_BRIGHT` | `&H00&` | Active word opacity (fully opaque) |
 | `COL_TEXT` | `&H00FFFFFF` | Caption text color |
