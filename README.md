@@ -71,6 +71,7 @@ Use `--prompt` to give whisper.cpp spelling and vocabulary hints before transcri
 
 ```sh
 uv run caption video.mp4 --prompt "Cloudflare, Browser Rendering, WebAssembly, Zeke"
+uv run caption video.mp4 --transcript script.txt
 ```
 
 Good prompt terms include:
@@ -81,6 +82,9 @@ Good prompt terms include:
 
 Keep the prompt short and comma-separated. It is context, not a script. The prompt
 biases transcription toward those terms, but it does not force them into the output.
+Use `--transcript` when you have the raw script or captions. The file is passed to
+whisper.cpp as an initial prompt with `--carry-initial-prompt`, so it can improve
+spellings and punctuation across segments. It is still guidance, not forced alignment.
 
 ## Options
 
@@ -89,6 +93,7 @@ biases transcription toward those terms, but it does not force them into the out
 | `-o, --output PATH` | `<input>-captioned.mp4` | Output file path |
 | `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
 | `--prompt TEXT` | — | Initial prompt for whisper — improves accuracy for domain-specific proper nouns |
+| `--transcript PATH` | — | Raw transcript text file to use as a whisper prompt |
 | `--words N` | `5` | Words per caption chunk |
 | `--position top\|center\|bottom` | `bottom` | Caption position |
 | `--palette-colors` | off | Derive global text and background colors from the video palette |

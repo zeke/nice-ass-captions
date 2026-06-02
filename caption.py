@@ -170,7 +170,7 @@ def extract_audio(input_path, tmp_dir):
     return wav_path
 
 
-def transcribe(wav_path, model_path, prompt, tmp_dir):
+def transcribe(wav_path, model_path, prompt, tmp_dir, carry_initial_prompt=False):
     """
     Run whisper-cli with DTW word-level timestamps.
     Returns path to the .wts bash script containing per-word timing.
@@ -189,9 +189,28 @@ def transcribe(wav_path, model_path, prompt, tmp_dir):
     ]
     if prompt:
         cmd += ["--prompt", prompt]
+        if carry_initial_prompt:
+            cmd += ["--carry-initial-prompt"]
 
     subprocess.run(cmd, check=True, capture_output=True)
     return wts_stem + ".wts"
+
+
+def read_transcript_prompt(transcript_path):
+    """Read raw transcript text for use as a whisper initial prompt."""
+    try:
+        return Path(transcript_path).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        raise ValueError(f"transcript file not found: {transcript_path}") from None
+    except IsADirectoryError:
+        raise ValueError(f"transcript path is a directory: {transcript_path}") from None
+    except UnicodeDecodeError as e:
+        raise ValueError(f"transcript file is not valid UTF-8: {transcript_path}") from e
+
+
+def combine_prompts(prompt, transcript_prompt):
+    parts = [part.strip() for part in (prompt, transcript_prompt) if part and part.strip()]
+    return "\n\n".join(parts)
 
 
 def _model_short_name(model_path):
@@ -721,6 +740,7 @@ def main():
     parser.add_argument("-o", "--output", help="Output video path (default: <input>-captioned.mp4)")
     parser.add_argument("--model", help="Whisper model path or name (e.g. medium.en)")
     parser.add_argument("--prompt", help="Initial prompt for whisper (improves proper noun accuracy)")
+    parser.add_argument("--transcript", help="Raw transcript text file to use as a whisper prompt")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")
     parser.add_argument("--position", choices=("top", "center", "bottom"), default=CAPTION_POSITION, help=f"Caption position (default: {CAPTION_POSITION})")
     parser.add_argument("--palette-colors", action="store_true", help="Derive text and background colors from the video palette")
@@ -731,6 +751,16 @@ def main():
     if not os.path.isfile(input_path):
         print(f"Error: file not found: {input_path}")
         sys.exit(1)
+
+    transcript_prompt = None
+    if args.transcript:
+        try:
+            transcript_prompt = read_transcript_prompt(args.transcript)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+    prompt = combine_prompts(args.prompt, transcript_prompt)
 
     # Resolve output path
     if args.output:
@@ -759,6 +789,8 @@ def main():
     print(f"Video: {width}x{height}")
     print(f"Model: {model_path}")
     print(f"Output: {output_path}")
+    if args.transcript:
+        print(f"Transcript prompt: {args.transcript}")
     colors = None
     if args.palette_colors:
         print("Sampling video palette...")
@@ -779,7 +811,7 @@ def main():
         wav_path = extract_audio(input_path, tmp_dir)
 
         print("Transcribing with whisper.cpp...")
-        wts_path = transcribe(wav_path, model_path, args.prompt, tmp_dir)
+        wts_path = transcribe(wav_path, model_path, prompt, tmp_dir, carry_initial_prompt=bool(transcript_prompt))
 
         print("Parsing word timestamps...")
         words = parse_wts(wts_path)
