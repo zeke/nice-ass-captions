@@ -18,6 +18,7 @@ Instructions for agents working with this repo.
 uv run caption video.mp4
 uv run caption video.mp4 --output out.mp4 --words 5 --model medium.en
 uv run caption video.mp4 --prompt "Cloudflare, WebAssembly, MyProductName"
+uv run caption video.mp4 --palette-colors
 ```
 
 ## Model paths
@@ -48,7 +49,9 @@ These are the main knobs. Edit them directly:
 | `PAD_X / PAD_Y` | top of file | Box padding — increase for more breathing room |
 | `CORNER_R` | top of file | Box corner roundness |
 | `ALPHA_DIM` | top of file | Inactive word transparency (`&H99&` ≈ 60% opaque) |
+| `COL_TEXT` | top of file | Caption text color |
 | `COL_BOX` | top of file | Box color+opacity (ASS `&HAABBGGRR`) |
+| `MIN_CONTRAST` | top of file | Minimum contrast ratio for `--palette-colors` |
 | `WORDS_PER_CHUNK` | top of file | Words per line — 4-6 is the sweet spot |
 | `COMPOUND_MERGES` | top of file | Token sequences to join (see below) |
 
