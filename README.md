@@ -82,9 +82,15 @@ Good prompt terms include:
 
 Keep the prompt short and comma-separated. It is context, not a script. The prompt
 biases transcription toward those terms, but it does not force them into the output.
-Use `--transcript` when you have the raw script or captions. The file is passed to
-whisper.cpp as an initial prompt with `--carry-initial-prompt`, so it can improve
-spellings and punctuation across segments. It is still guidance, not forced alignment.
+Use `--transcript` when you have the raw script or captions. The exact words from the
+file are used as the displayed caption text (correct spelling and punctuation), mapped
+onto whisper's word timings. This fixes proper nouns that whisper splits into subword
+tokens, like `Vite`, `Rolldown`, or `Oxc`. Blank lines in the transcript force caption
+line breaks, so you can keep a closing phrase on its own line.
+
+With `--timing-mode uniform`, the transcript words are distributed evenly across the
+clip duration instead of using whisper's word timings. This is useful for short or
+noisy clips where whisper's forced-alignment jumps around.
 
 ## Options
 
@@ -93,9 +99,12 @@ spellings and punctuation across segments. It is still guidance, not forced alig
 | `-o, --output PATH` | `<input>-captioned.mp4` | Output file path |
 | `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
 | `--prompt TEXT` | — | Initial prompt for whisper — improves accuracy for domain-specific proper nouns |
-| `--transcript PATH` | — | Raw transcript text file to use as a whisper prompt |
+| `--transcript PATH` | — | Raw transcript text file. Forces exact caption words and supports blank-line breaks |
+| `--timing-mode whisper\|uniform` | `whisper` | Word timing source when `--transcript` is used |
 | `--words N` | `5` | Words per caption chunk |
+| `--font-size N` | `72` | Caption font size in script pixels |
 | `--position top\|center\|bottom` | `bottom` | Caption position |
+| `--hold-last` | off | Keep the final caption visible until the end of the video |
 | `--palette-colors` | off | Derive global text and background colors from the video palette |
 | `--keep-tmp` | off | Keep intermediate `.wav` and `.wts` files |
 
