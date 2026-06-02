@@ -42,6 +42,7 @@ COL_BOX       = "&H48000000"  # background box color (black, ~72% opaque)
 MIN_CONTRAST  = 4.5         # WCAG AA contrast ratio for normal text
 
 WORDS_PER_CHUNK = 5         # words per caption group
+CAPTION_POSITION = "bottom"  # top, center, or bottom
 
 # ---------------------------------------------------------------------------
 # Compound word merges
@@ -353,7 +354,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
-def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None):
+def get_caption_layout(position, video_width, video_height):
+    cx = video_width // 2
+    text_h = FONT_SIZE
+    box_h = text_h + PAD_Y * 2
+
+    if position == "top":
+        text_y = MARGIN_BOTTOM + PAD_Y
+        box_top = MARGIN_BOTTOM
+        return "8", cx, text_y, box_top
+    if position == "center":
+        text_y = video_height // 2
+        box_top = (video_height - box_h) / 2
+        return "5", cx, text_y, box_top
+    if position == "bottom":
+        text_y = video_height - MARGIN_BOTTOM
+        box_top = text_y - text_h - PAD_Y
+        return "2", cx, text_y, box_top
+    raise ValueError(f"Invalid caption position: {position}")
+
+
+def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None, position=CAPTION_POSITION):
     colors = colors or {}
     header = ASS_HEADER.format(
         width   = video_width,
@@ -364,13 +385,10 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         box_col = colors.get("box", COL_BOX),
     )
 
-    cx     = video_width // 2
-    text_y = video_height - MARGIN_BOTTOM
-    pos_tag = rf"{{\an2\pos({cx},{text_y})}}"
-
     text_h = FONT_SIZE
     box_h  = text_h + PAD_Y * 2
-    box_top = text_y - text_h - PAD_Y
+    align, cx, text_y, box_top = get_caption_layout(position, video_width, video_height)
+    pos_tag = rf"{{\an{align}\pos({cx},{text_y})}}"
 
     lines = []
 
@@ -704,6 +722,7 @@ def main():
     parser.add_argument("--model", help="Whisper model path or name (e.g. medium.en)")
     parser.add_argument("--prompt", help="Initial prompt for whisper (improves proper noun accuracy)")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")
+    parser.add_argument("--position", choices=("top", "center", "bottom"), default=CAPTION_POSITION, help=f"Caption position (default: {CAPTION_POSITION})")
     parser.add_argument("--palette-colors", action="store_true", help="Derive text and background colors from the video palette")
     parser.add_argument("--keep-tmp", action="store_true", help="Keep intermediate audio/wts files")
     args = parser.parse_args()
@@ -771,7 +790,7 @@ def main():
 
         print("Generating ASS captions...")
         ass_path = os.path.join(tmp_dir, "captions.ass")
-        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors)
+        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors, position=args.position)
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
 
