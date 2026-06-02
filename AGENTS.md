@@ -18,6 +18,7 @@ Instructions for agents working with this repo.
 uv run caption video.mp4
 uv run caption video.mp4 --output out.mp4 --words 5 --model medium.en
 uv run caption video.mp4 --prompt "Cloudflare, WebAssembly, MyProductName"
+uv run caption video.mp4 --transcript script.txt
 uv run caption video.mp4 --palette-colors
 uv run caption video.mp4 --position top
 ```
@@ -84,6 +85,11 @@ uv run caption video.mp4 --prompt "Cloudflare Browser Rendering, don't, you're"
 
 Good for: product names, technical terms, names of people. Contractions in the prompt
 help the model transcribe them correctly too.
+
+Use `--transcript script.txt` when raw captions or a script are available. The file is
+passed to whisper.cpp as an initial prompt with `--carry-initial-prompt`; this can help
+spellings and punctuation, but it is not forced alignment and does not guarantee exact
+caption text.
 
 ## Common failure modes
 
