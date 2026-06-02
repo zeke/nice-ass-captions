@@ -37,7 +37,9 @@ MARGIN_BOTTOM = 80          # distance from bottom of frame to text baseline
 # ASS alpha: 0x00 = fully opaque, 0xFF = fully transparent
 ALPHA_DIM     = "&H99&"     # inactive words (~60% opaque)
 ALPHA_BRIGHT  = "&H00&"     # active word (fully opaque)
+COL_TEXT      = "&H00FFFFFF"  # caption text color (white, opaque)
 COL_BOX       = "&H48000000"  # background box color (black, ~72% opaque)
+MIN_CONTRAST  = 4.5         # WCAG AA contrast ratio for normal text
 
 WORDS_PER_CHUNK = 5         # words per caption group
 
@@ -343,7 +345,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Caption,{font},{size},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,2,0,0,0,1
+Style: Caption,{font},{size},{text_col},{text_col},&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,2,0,0,0,1
 Style: Box,Arial,1,{box_col},{box_col},{box_col},{box_col},0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 
 [Events]
@@ -351,13 +353,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
-def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT):
+def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None):
+    colors = colors or {}
     header = ASS_HEADER.format(
         width   = video_width,
         height  = video_height,
         font    = FONT_NAME,
         size    = FONT_SIZE,
-        box_col = COL_BOX,
+        text_col = colors.get("text", COL_TEXT),
+        box_col = colors.get("box", COL_BOX),
     )
 
     cx     = video_width // 2
@@ -450,6 +454,243 @@ def get_video_dimensions(input_path):
     return VIDEO_WIDTH, VIDEO_HEIGHT
 
 
+def get_video_duration(input_path):
+    """Return duration in seconds using ffprobe, or 0 if unavailable."""
+    result = subprocess.run([
+        "ffprobe", "-v", "quiet",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        input_path,
+    ], capture_output=True, text=True)
+    try:
+        return float(result.stdout.strip())
+    except ValueError:
+        return 0
+
+
+# ---------------------------------------------------------------------------
+# Palette-derived colors
+# ---------------------------------------------------------------------------
+
+def rgb_to_ass(rgb, alpha=0):
+    """RGB tuple + ASS alpha byte -> ASS &HAABBGGRR color."""
+    r, g, b = [max(0, min(255, int(v))) for v in rgb]
+    return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
+
+
+def srgb_to_linear(c):
+    c = c / 255
+    if c <= 0.03928:
+        return c / 12.92
+    return ((c + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(rgb):
+    r, g, b = [srgb_to_linear(v) for v in rgb]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a, b):
+    l1 = relative_luminance(a)
+    l2 = relative_luminance(b)
+    lighter = max(l1, l2)
+    darker = min(l1, l2)
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def saturation(rgb):
+    return (max(rgb) - min(rgb)) / 255
+
+
+def mix(a, b, amount):
+    return tuple(round(a[i] * (1 - amount) + b[i] * amount) for i in range(3))
+
+
+def composite_box_over_video(box_rgb, box_alpha, video_rgb):
+    opacity = 1 - (box_alpha / 255)
+    return tuple(round(box_rgb[i] * opacity + video_rgb[i] * (1 - opacity)) for i in range(3))
+
+
+def extract_palette(input_path, ffmpeg_path, samples=9, frame_size=64):
+    """Sample frames and return (palette, pixels), where palette is frequent RGB buckets."""
+    duration = get_video_duration(input_path)
+    if duration > 0:
+        timestamps = [duration * (i + 1) / (samples + 1) for i in range(samples)]
+    else:
+        timestamps = [0]
+
+    counts = {}
+    pixels = []
+    expected = frame_size * frame_size * 3
+
+    for timestamp in timestamps:
+        result = subprocess.run([
+            ffmpeg_path, "-v", "error",
+            "-ss", f"{timestamp:.3f}",
+            "-i", input_path,
+            "-frames:v", "1",
+            "-vf", f"scale={frame_size}:{frame_size}:flags=bilinear,format=rgb24",
+            "-f", "rawvideo", "-",
+        ], capture_output=True)
+        raw = result.stdout
+        if len(raw) != expected:
+            continue
+
+        for i in range(0, len(raw), 3):
+            rgb = (raw[i], raw[i + 1], raw[i + 2])
+            pixels.append(rgb)
+            bucket = tuple((v // 16) * 16 + 8 for v in rgb)
+            counts[bucket] = counts.get(bucket, 0) + 1
+
+    ranked = sorted(
+        counts.items(),
+        key=lambda item: item[1] * (1 + saturation(item[0])),
+        reverse=True,
+    )
+    return [rgb for rgb, _ in ranked[:32]], pixels
+
+
+def min_contrast_over_samples(text_rgb, box_rgb, box_alpha, pixels):
+    if not pixels:
+        return contrast_ratio(text_rgb, box_rgb)
+    return min(
+        contrast_ratio(text_rgb, composite_box_over_video(box_rgb, box_alpha, pixel))
+        for pixel in pixels[::max(1, len(pixels) // 512)]
+    )
+
+
+def palette_pair_score(text_rgb, box_rgb, box_alpha, contrast):
+    """Prefer visibly colored palette pairs after contrast has passed."""
+    contrast_bonus = min(contrast - MIN_CONTRAST, 4) * 0.15
+    alpha_penalty = abs(box_alpha - 0x48) / 255
+    near_white_penalty = 0.55 if min(text_rgb) > 232 and saturation(text_rgb) < 0.16 else 0
+    near_black_penalty = 0.35 if relative_luminance(box_rgb) < 0.012 and saturation(box_rgb) < 0.16 else 0
+    return (
+        saturation(text_rgb) * 3
+        + saturation(box_rgb) * 1.2
+        + relative_luminance(text_rgb) * 0.45
+        + contrast_bonus
+        - alpha_penalty
+        - near_white_penalty
+        - near_black_penalty
+    )
+
+
+def choose_palette_colors(input_path, ffmpeg_path, min_contrast=MIN_CONTRAST):
+    """Choose global text and box colors from the video palette with accessible contrast."""
+    palette, pixels = extract_palette(input_path, ffmpeg_path)
+    if not palette:
+        return {
+            "text": COL_TEXT,
+            "box": COL_BOX,
+            "text_rgb": (255, 255, 255),
+            "box_rgb": (0, 0, 0),
+            "box_alpha": 0x48,
+            "contrast": min_contrast,
+            "fallback": True,
+        }
+
+    palette = palette[:16]
+
+    bg_candidates = []
+    for rgb in palette:
+        bg_candidates.append(rgb)
+        bg_candidates.append(mix(rgb, (0, 0, 0), 0.45))
+        bg_candidates.append(mix(rgb, (0, 0, 0), 0.70))
+    bg_candidates = sorted(
+        dict.fromkeys(bg_candidates),
+        key=lambda rgb: (relative_luminance(rgb), -saturation(rgb)),
+    )
+
+    text_candidates = []
+    for rgb in palette:
+        text_candidates.append(rgb)
+        text_candidates.append(mix(rgb, (255, 255, 255), 0.55))
+        text_candidates.append(mix(rgb, (255, 255, 255), 0.78))
+    text_candidates.extend([(255, 255, 255), (245, 245, 235), (0, 0, 0)])
+    text_candidates = sorted(
+        dict.fromkeys(text_candidates),
+        key=lambda rgb: (abs(relative_luminance(rgb) - 0.85), -saturation(rgb)),
+    )
+
+    best = None
+    best_passing = None
+    for box_alpha in (0x48, 0x40, 0x38, 0x30, 0x28):
+        for box_rgb in bg_candidates:
+            for text_rgb in text_candidates:
+                contrast = min_contrast_over_samples(text_rgb, box_rgb, box_alpha, pixels)
+                score = palette_pair_score(text_rgb, box_rgb, box_alpha, contrast)
+                if best is None or contrast > best["contrast"]:
+                    best = {
+                        "text_rgb": text_rgb,
+                        "box_rgb": box_rgb,
+                        "box_alpha": box_alpha,
+                        "contrast": contrast,
+                    }
+                if contrast >= min_contrast:
+                    if best_passing is None or score > best_passing["score"]:
+                        best_passing = {
+                            "text_rgb": text_rgb,
+                            "box_rgb": box_rgb,
+                            "box_alpha": box_alpha,
+                            "contrast": contrast,
+                            "score": score,
+                        }
+
+    if best_passing:
+        text_rgb = best_passing["text_rgb"]
+        box_rgb = best_passing["box_rgb"]
+        box_alpha = best_passing["box_alpha"]
+        return {
+            "text": rgb_to_ass(text_rgb),
+            "box": rgb_to_ass(box_rgb, box_alpha),
+            "text_rgb": text_rgb,
+            "box_rgb": box_rgb,
+            "box_alpha": box_alpha,
+            "contrast": best_passing["contrast"],
+            "fallback": False,
+        }
+
+    if best:
+        text_rgb = best["text_rgb"]
+        box_rgb = best["box_rgb"]
+        box_alpha = best["box_alpha"]
+        contrast = best["contrast"]
+        if contrast >= min_contrast:
+            return {
+                "text": rgb_to_ass(text_rgb),
+                "box": rgb_to_ass(box_rgb, box_alpha),
+                "text_rgb": text_rgb,
+                "box_rgb": box_rgb,
+                "box_alpha": box_alpha,
+                "contrast": contrast,
+                "fallback": False,
+            }
+
+    # Keep some transparency, but force a readable pair if palette colors fail.
+    text_rgb = (255, 255, 255)
+    box_rgb = mix(bg_candidates[0], (0, 0, 0), 0.85)
+    box_alpha = 0x28
+    contrast = min_contrast_over_samples(text_rgb, box_rgb, box_alpha, pixels)
+    if contrast < min_contrast:
+        box_rgb = (0, 0, 0)
+        contrast = min_contrast_over_samples(text_rgb, box_rgb, box_alpha, pixels)
+
+    return {
+        "text": rgb_to_ass(text_rgb),
+        "box": rgb_to_ass(box_rgb, box_alpha),
+        "text_rgb": text_rgb,
+        "box_rgb": box_rgb,
+        "box_alpha": box_alpha,
+        "contrast": contrast,
+        "fallback": True,
+    }
+
+
+def rgb_to_hex(rgb):
+    return "#" + "".join(f"{v:02X}" for v in rgb)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -463,6 +704,7 @@ def main():
     parser.add_argument("--model", help="Whisper model path or name (e.g. medium.en)")
     parser.add_argument("--prompt", help="Initial prompt for whisper (improves proper noun accuracy)")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")
+    parser.add_argument("--palette-colors", action="store_true", help="Derive text and background colors from the video palette")
     parser.add_argument("--keep-tmp", action="store_true", help="Keep intermediate audio/wts files")
     args = parser.parse_args()
 
@@ -498,6 +740,18 @@ def main():
     print(f"Video: {width}x{height}")
     print(f"Model: {model_path}")
     print(f"Output: {output_path}")
+    colors = None
+    if args.palette_colors:
+        print("Sampling video palette...")
+        colors = choose_palette_colors(input_path, ffmpeg_full)
+        fallback = " fallback" if colors.get("fallback") else ""
+        print(
+            "Palette colors: "
+            f"text {rgb_to_hex(colors['text_rgb'])}, "
+            f"box {rgb_to_hex(colors['box_rgb'])} "
+            f"({100 * (1 - colors['box_alpha'] / 255):.0f}% opaque), "
+            f"contrast {colors['contrast']:.1f}:1{fallback}"
+        )
     print()
 
     tmp_dir = tempfile.mkdtemp(prefix="nice-ass-captions-")
@@ -517,7 +771,7 @@ def main():
 
         print("Generating ASS captions...")
         ass_path = os.path.join(tmp_dir, "captions.ass")
-        ass = build_ass(chunks, video_width=width, video_height=height)
+        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors)
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
 

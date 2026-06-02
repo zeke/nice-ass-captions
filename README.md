@@ -8,6 +8,7 @@ Burn stylish captions into videos using [whisper](https://github.com/ggml-org/wh
 
 - Word-level highlighting — the active word is bright, the rest are dim
 - Rounded semi-transparent background box
+- Optional palette-derived text and box colors with accessible contrast
 - Accurate local transcription via [whisper.cpp](https://github.com/ggml-org/whisper.cpp) running on-device (Apple Silicon Metal acceleration)
 - No API keys, no cloud, no data leaves your machine
 - One command from raw video to captioned video
@@ -54,6 +55,32 @@ uv run caption video.mp4
 
 Output is saved to `video-captioned.mp4` in the same directory as the input.
 
+Use `--palette-colors` to pull global text and background colors from the video:
+
+```sh
+uv run caption video.mp4 --palette-colors
+```
+
+The palette mode samples frames across the whole video, picks one global color pair,
+and checks the text color against the semi-transparent background box for accessible
+contrast. If the sampled palette cannot produce a readable pair, it falls back to a
+safer high-contrast pair.
+
+Use `--prompt` to give whisper.cpp spelling and vocabulary hints before transcription:
+
+```sh
+uv run caption video.mp4 --prompt "Cloudflare, Browser Rendering, WebAssembly, Zeke"
+```
+
+Good prompt terms include:
+
+- Product names, company names, project names, and people names
+- Acronyms, technical terms, jargon, and uncommon words
+- Words with expected casing or punctuation, such as `Workers AI`, `don't`, or `you're`
+
+Keep the prompt short and comma-separated. It is context, not a script. The prompt
+biases transcription toward those terms, but it does not force them into the output.
+
 ## Options
 
 | Flag | Default | Description |
@@ -62,6 +89,7 @@ Output is saved to `video-captioned.mp4` in the same directory as the input.
 | `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
 | `--prompt TEXT` | — | Initial prompt for whisper — improves accuracy for domain-specific proper nouns |
 | `--words N` | `5` | Words per caption chunk |
+| `--palette-colors` | off | Derive global text and background colors from the video palette |
 | `--keep-tmp` | off | Keep intermediate `.wav` and `.wts` files |
 
 ## Models
@@ -103,7 +131,9 @@ All visual parameters are constants at the top of `caption.py`:
 | `MARGIN_BOTTOM` | `80` | Distance from bottom of frame to text |
 | `ALPHA_DIM` | `&H99&` | Inactive word opacity (~60% opaque) |
 | `ALPHA_BRIGHT` | `&H00&` | Active word opacity (fully opaque) |
+| `COL_TEXT` | `&H00FFFFFF` | Caption text color |
 | `COL_BOX` | `&H48000000` | Background box color and opacity |
+| `MIN_CONTRAST` | `4.5` | Minimum contrast ratio for palette colors |
 | `WORDS_PER_CHUNK` | `5` | Words per caption group |
 
 Colors use ASS format: `&HAABBGGRR` where `AA` is alpha (`00` = opaque, `FF` = transparent).
