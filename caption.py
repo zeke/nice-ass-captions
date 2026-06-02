@@ -213,10 +213,147 @@ def combine_prompts(prompt, transcript_prompt):
     return "\n\n".join(parts)
 
 
+def transcript_words(transcript):
+    """Tokenize transcript text into caption words, preserving product spellings."""
+    if not transcript:
+        return []
+    # Words may include apostrophes and product suffixes like Vite+.
+    pattern = r"[A-Za-z0-9]+(?:[’'][A-Za-z0-9]+)*(?:\+)?(?:[.,!?;:])?"
+    return re.findall(pattern, transcript)
+
+
+def transcript_word_groups(transcript):
+    """Tokenize transcript into paragraph groups for forced caption breaks."""
+    groups = []
+    for paragraph in re.split(r"\n\s*\n", transcript or ""):
+        words = transcript_words(paragraph)
+        if words:
+            groups.append(words)
+    return groups
+
+
+def canonical_word(word):
+    """Normalize words for transcript-to-Whisper alignment."""
+    normalized = word.lower().replace("’", "'").replace("+", "plus")
+    normalized = re.sub(r"[^a-z0-9]+", "", normalized)
+    aliases = {
+        "vite": "veet",
+        "viteplus": "veetplus",
+        "vitest": "veettest",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def force_transcript_words(timed_words, transcript):
+    """Replace Whisper words with exact transcript words while preserving timings.
+
+    Whisper's word timestamps are useful even when its tokenization is not. For
+    product names like Vite, Rolldown, and Oxc it may split words into subword
+    tokens. When a transcript is provided, use its exact tokens for display and
+    map them onto Whisper's timing span.
+    """
+    exact = transcript_words(transcript)
+    if not exact or not timed_words:
+        return timed_words
+
+    aligned = []
+    i = 0
+    fallback_start = timed_words[0]["start"]
+    fallback_end = timed_words[-1]["end"]
+    fallback_step = max(0.01, fallback_end - fallback_start) / len(exact)
+
+    for exact_index, word in enumerate(exact):
+        target = canonical_word(word)
+        match = None
+
+        for span in range(1, 6):
+            if i + span > len(timed_words):
+                break
+            combined = "".join(canonical_word(t["word"]) for t in timed_words[i:i + span])
+            if combined == target:
+                match = timed_words[i:i + span]
+                break
+
+        if match:
+            aligned.append({"word": word, "start": match[0]["start"], "end": match[-1]["end"]})
+            i += len(match)
+        elif i < len(timed_words):
+            aligned.append({"word": word, "start": timed_words[i]["start"], "end": timed_words[i]["end"]})
+            i += 1
+        else:
+            start = fallback_start + fallback_step * exact_index
+            aligned.append({"word": word, "start": start, "end": start + fallback_step})
+
+    return aligned
+
+
+def chunk_words_with_transcript_groups(words, transcript, chunk_size):
+    """Chunk words while respecting blank-line breaks in transcript files."""
+    groups = transcript_word_groups(transcript)
+    if not groups:
+        return chunk_words(words, chunk_size)
+
+    chunks = []
+    cursor = 0
+    for group in groups:
+        group_words = words[cursor:cursor + len(group)]
+        cursor += len(group)
+        for i in range(0, len(group_words), chunk_size):
+            chunk_group = group_words[i:i + chunk_size]
+            if chunk_group:
+                chunks.append({"words": chunk_group, "start": chunk_group[0]["start"], "end": chunk_group[-1]["end"]})
+    if cursor < len(words):
+        chunks.extend(chunk_words(words[cursor:], chunk_size))
+    return chunks
+
+
+def repair_word_timings(words, min_duration=0.12):
+    """Ensure word timings are monotonic and have a visible highlight span.
+
+    Whisper DTW occasionally emits zero-duration or overlapping word timings,
+    especially around short punctuation-heavy phrases. ASS zero-duration \t()
+    transitions make highlights appear stuck or skip words. This keeps the
+    original order and approximate timing while guaranteeing each word has a
+    small, positive highlight window.
+    """
+    if not words:
+        return words
+
+    repaired = []
+    prev_end = words[0]["start"]
+    for word in words:
+        start = max(word["start"], prev_end)
+        end = max(word["end"], start + min_duration)
+        repaired.append({"word": word["word"], "start": start, "end": end})
+        prev_end = end
+    return repaired
+
+
+def uniform_transcript_timings(transcript, duration, start_time=0.05, end_padding=0.20):
+    """Create stable transcript timings by distributing words over video duration.
+
+    This is useful for short TTS clips where Whisper DTW timings are noisy or
+    produce awkward highlight jumps. Paragraph breaks are preserved later by
+    chunk_words_with_transcript_groups().
+    """
+    exact = transcript_words(transcript)
+    if not exact:
+        return []
+    end_time = max(start_time + 0.01, duration - end_padding)
+    step = max(0.12, (end_time - start_time) / len(exact))
+    return [
+        {"word": word, "start": start_time + i * step, "end": start_time + (i + 1) * step}
+        for i, word in enumerate(exact)
+    ]
+
+
 def _model_short_name(model_path):
     """Extract the model name for --dtw flag, e.g. 'medium.en' from 'ggml-medium.en.bin'."""
     name = Path(model_path).stem  # e.g. ggml-medium.en
-    return name.replace("ggml-", "")
+    short = name.replace("ggml-", "")
+    if short == "large-v3-turbo":
+        return "large.v3.turbo"
+    return short
 
 
 # ---------------------------------------------------------------------------
@@ -230,7 +367,7 @@ def parse_wts(wts_path):
     mark each active word with its timing window.
     Returns a list of {word, start, end} dicts.
     """
-    raw = open(wts_path).read()
+    raw = open(wts_path, encoding="utf-8", errors="replace").read()
     unescaped = raw.replace("\\'", "'").replace("\\\\", "\\")
 
     pattern = (
@@ -373,9 +510,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
 
 
-def get_caption_layout(position, video_width, video_height):
+def get_caption_layout(position, video_width, video_height, font_size=FONT_SIZE):
     cx = video_width // 2
-    text_h = FONT_SIZE
+    text_h = font_size
     box_h = text_h + PAD_Y * 2
 
     if position == "top":
@@ -393,25 +530,27 @@ def get_caption_layout(position, video_width, video_height):
     raise ValueError(f"Invalid caption position: {position}")
 
 
-def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None, position=CAPTION_POSITION):
+def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None, position=CAPTION_POSITION, font_size=FONT_SIZE, hold_until=None):
     colors = colors or {}
     header = ASS_HEADER.format(
         width   = video_width,
         height  = video_height,
         font    = FONT_NAME,
-        size    = FONT_SIZE,
+        size    = font_size,
         text_col = colors.get("text", COL_TEXT),
         box_col = colors.get("box", COL_BOX),
     )
 
-    text_h = FONT_SIZE
+    text_h = font_size
     box_h  = text_h + PAD_Y * 2
-    align, cx, text_y, box_top = get_caption_layout(position, video_width, video_height)
+    align, cx, text_y, box_top = get_caption_layout(position, video_width, video_height, font_size=font_size)
     pos_tag = rf"{{\an{align}\pos({cx},{text_y})}}"
 
     lines = []
 
     for chunk in chunks:
+        if hold_until and chunk is chunks[-1]:
+            chunk = {**chunk, "end": max(chunk["end"], hold_until)}
         chunk_words = chunk["words"]
         chunk_start = chunk["start"]
         chunk_end   = chunk["end"]
@@ -419,9 +558,9 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         chunk_end_ts   = sec_to_ass(chunk_end)
 
         # Estimate box width from character counts
-        space_w = FONT_SIZE * 0.28
+        space_w = font_size * 0.28
         total_text_w = (
-            sum(len(w["word"]) * FONT_SIZE * 0.52 for w in chunk_words)
+            sum(len(w["word"]) * font_size * 0.52 for w in chunk_words)
             + space_w * (len(chunk_words) - 1)
         )
         box_w    = total_text_w + PAD_X * 2
@@ -742,7 +881,10 @@ def main():
     parser.add_argument("--prompt", help="Initial prompt for whisper (improves proper noun accuracy)")
     parser.add_argument("--transcript", help="Raw transcript text file to use as a whisper prompt")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")
+    parser.add_argument("--font-size", type=int, default=FONT_SIZE, help=f"Caption font size (default: {FONT_SIZE})")
     parser.add_argument("--position", choices=("top", "center", "bottom"), default=CAPTION_POSITION, help=f"Caption position (default: {CAPTION_POSITION})")
+    parser.add_argument("--hold-last", action="store_true", help="Keep the final caption visible until the end of the video")
+    parser.add_argument("--timing-mode", choices=("whisper", "uniform"), default="whisper", help="Word timing source when --transcript is used")
     parser.add_argument("--palette-colors", action="store_true", help="Derive text and background colors from the video palette")
     parser.add_argument("--keep-tmp", action="store_true", help="Keep intermediate audio/wts files")
     args = parser.parse_args()
@@ -814,15 +956,22 @@ def main():
         wts_path = transcribe(wav_path, model_path, prompt, tmp_dir, carry_initial_prompt=bool(transcript_prompt))
 
         print("Parsing word timestamps...")
-        words = parse_wts(wts_path)
+        if transcript_prompt and args.timing_mode == "uniform":
+            words = uniform_transcript_timings(transcript_prompt, get_video_duration(input_path))
+        else:
+            words = parse_wts(wts_path)
+            if transcript_prompt:
+                words = force_transcript_words(words, transcript_prompt)
+            words = repair_word_timings(words)
         print(f"  {len(words)} words found")
 
-        chunks = chunk_words(words, args.words)
+        chunks = chunk_words_with_transcript_groups(words, transcript_prompt, args.words) if transcript_prompt else chunk_words(words, args.words)
         print(f"  {len(chunks)} chunks of ~{args.words} words")
 
         print("Generating ASS captions...")
         ass_path = os.path.join(tmp_dir, "captions.ass")
-        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors, position=args.position)
+        hold_until = get_video_duration(input_path) if args.hold_last else None
+        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors, position=args.position, font_size=args.font_size, hold_until=hold_until)
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
 
