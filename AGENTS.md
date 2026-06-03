@@ -19,7 +19,8 @@ uv run caption video.mp4
 uv run caption video.mp4 --output out.mp4 --words 5 --model medium.en
 uv run caption video.mp4 --prompt "Cloudflare, WebAssembly, MyProductName"
 uv run caption video.mp4 --transcript script.txt
-uv run caption video.mp4 --palette-colors
+uv run caption video.mp4 --colorize global
+uv run caption video.mp4 --colorize per-chunk
 uv run caption video.mp4 --position top
 ```
 
@@ -53,7 +54,7 @@ These are the main knobs. Edit them directly:
 | `ALPHA_DIM` | top of file | Inactive word transparency (`&H99&` ≈ 60% opaque) |
 | `COL_TEXT` | top of file | Caption text color |
 | `COL_BOX` | top of file | Box color+opacity (ASS `&HAABBGGRR`) |
-| `MIN_CONTRAST` | top of file | Minimum contrast ratio for `--palette-colors` |
+| `MIN_CONTRAST` | top of file | Minimum contrast ratio for `--colorize` |
 | `WORDS_PER_CHUNK` | top of file | Words per line — 4-6 is the sweet spot |
 | `CAPTION_POSITION` | top of file | Default caption placement: `top`, `center`, or `bottom` |
 | `COMPOUND_MERGES` | top of file | Token sequences to join (see below) |
