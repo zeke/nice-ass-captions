@@ -8,7 +8,7 @@ Burn stylish captions into videos using [whisper](https://github.com/ggml-org/wh
 
 - Word-level highlighting — the active word is bright, the rest are dim
 - Rounded semi-transparent background box
-- Optional palette-derived text and box colors with accessible contrast
+- Optional palette-derived text and box colors with accessible contrast — one pair for the whole video, or colors that follow the imagery block by block
 - Accurate local transcription via [whisper.cpp](https://github.com/ggml-org/whisper.cpp) running on-device (Apple Silicon Metal acceleration)
 - No API keys, no cloud, no data leaves your machine
 - One command from raw video to captioned video
@@ -56,16 +56,13 @@ uv run caption video.mp4 --position top
 
 Output is saved to `video-captioned.mp4` in the same directory as the input.
 
-Use `--palette-colors` to pull global text and background colors from the video:
+Use `--colorize` to pull text and background colors from the video imagery. See
+[Colorize](#colorize) for the two modes.
 
 ```sh
-uv run caption video.mp4 --palette-colors
+uv run caption video.mp4 --colorize global
+uv run caption video.mp4 --colorize per-chunk
 ```
-
-The palette mode samples frames across the whole video, picks one global color pair,
-and checks the text color against the semi-transparent background box for accessible
-contrast. If the sampled palette cannot produce a readable pair, it falls back to a
-safer high-contrast pair.
 
 Use `--prompt` to give whisper.cpp spelling and vocabulary hints before transcription:
 
@@ -86,6 +83,43 @@ Use `--transcript` when you have the raw script or captions. The file is passed 
 whisper.cpp as an initial prompt with `--carry-initial-prompt`, so it can improve
 spellings and punctuation across segments. It is still guidance, not forced alignment.
 
+## Colorize
+
+By default captions use the built-in white-on-black style. `--colorize` instead derives
+the text and background colors from the video imagery. It has two modes.
+
+```sh
+uv run caption video.mp4 --colorize global
+uv run caption video.mp4 --colorize per-chunk
+```
+
+`--colorize global` samples frames across the whole video, builds a dominant-color
+palette, and picks one text/box pair for the entire run. `--colorize per-chunk` samples
+a frame at each caption block's timestamp and picks a pair per block, so the colors track
+what is on screen as the captions advance.
+
+Both modes share the same accessibility rules:
+
+- Text is checked against the semi-transparent box composited over the sampled pixels, and
+  must clear the `MIN_CONTRAST` ratio (4.5:1, WCAG AA for normal text).
+- Among readable pairs, saturated and visibly colored combinations are preferred over
+  washed-out near-white or near-black ones.
+- If the sampled palette cannot produce a readable pair, it falls back to a safer
+  high-contrast pair.
+
+Because `per-chunk` samples the frames each block actually appears over, its contrast
+check is tighter than `global`. Colors change abruptly between blocks (hard cuts); smooth
+color tweening between blocks may come later.
+
+When colorizing, the console prints the chosen colors, the box opacity, and the measured
+contrast ratio. In `global` mode this is a single line; in `per-chunk` mode one line is
+printed per caption block:
+
+```
+Colorize: text #F5E9C8, box #1A140B (72% opaque), contrast 9.3:1   # global
+  block 1: text #F5E9C8, box #1A140B (72% opaque), contrast 9.3:1  # per-chunk
+```
+
 ## Options
 
 | Flag | Default | Description |
@@ -96,7 +130,7 @@ spellings and punctuation across segments. It is still guidance, not forced alig
 | `--transcript PATH` | — | Raw transcript text file to use as a whisper prompt |
 | `--words N` | `5` | Words per caption chunk |
 | `--position top\|center\|bottom` | `bottom` | Caption position |
-| `--palette-colors` | off | Derive global text and background colors from the video palette |
+| `--colorize global\|per-chunk` | off | Derive text and background colors from the video imagery (whole-video pair or per-block) |
 | `--keep-tmp` | off | Keep intermediate `.wav` and `.wts` files |
 
 ## Models
@@ -141,7 +175,7 @@ All visual parameters are constants at the top of `caption.py`:
 | `ALPHA_BRIGHT` | `&H00&` | Active word opacity (fully opaque) |
 | `COL_TEXT` | `&H00FFFFFF` | Caption text color |
 | `COL_BOX` | `&H48000000` | Background box color and opacity |
-| `MIN_CONTRAST` | `4.5` | Minimum contrast ratio for palette colors |
+| `MIN_CONTRAST` | `4.5` | Minimum contrast ratio for `--colorize` colors |
 | `WORDS_PER_CHUNK` | `5` | Words per caption group |
 
 Colors use ASS format: `&HAABBGGRR` where `AA` is alpha (`00` = opaque, `FF` = transparent).
