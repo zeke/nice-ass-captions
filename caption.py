@@ -217,7 +217,7 @@ def transcript_words(transcript):
     """Tokenize transcript text into caption words, preserving product spellings."""
     if not transcript:
         return []
-    # Words may include apostrophes and product suffixes like Vite+.
+    # Words may include apostrophes and an optional trailing "+".
     pattern = r"[A-Za-z0-9]+(?:[’'][A-Za-z0-9]+)*(?:\+)?(?:[.,!?;:])?"
     return re.findall(pattern, transcript)
 
@@ -236,6 +236,7 @@ def canonical_word(word):
     """Normalize words for transcript-to-Whisper alignment."""
     normalized = word.lower().replace("’", "'").replace("+", "plus")
     normalized = re.sub(r"[^a-z0-9]+", "", normalized)
+    # Example aliases — extend for your own content.
     aliases = {
         "vite": "veet",
         "viteplus": "veetplus",
@@ -247,10 +248,10 @@ def canonical_word(word):
 def force_transcript_words(timed_words, transcript):
     """Replace Whisper words with exact transcript words while preserving timings.
 
-    Whisper's word timestamps are useful even when its tokenization is not. For
-    product names like Vite, Rolldown, and Oxc it may split words into subword
-    tokens, and it transcribes the same spoken sound inconsistently (e.g. "veet"
-    as "V E ET" in one clip and "Vit" in another), so exact matching alone drifts.
+    Whisper's word timestamps are useful even when its tokenization is not. It may
+    split product names into subword tokens, and it transcribes the same spoken
+    sound inconsistently (spelling it out differently from one clip to the next),
+    so exact matching alone drifts.
 
     Strategy: anchor the transcript words that DO match a Whisper token span
     (scanning forward), then distribute any unmatched runs evenly across the real

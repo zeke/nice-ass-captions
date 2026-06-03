@@ -85,8 +85,8 @@ biases transcription toward those terms, but it does not force them into the out
 Use `--transcript` when you have the raw script or captions. The exact words from the
 file are used as the displayed caption text (correct spelling and punctuation), mapped
 onto whisper's word timings. This fixes proper nouns that whisper splits into subword
-tokens, like `Vite`, `Rolldown`, or `Oxc`. Blank lines in the transcript force caption
-line breaks, so you can keep a closing phrase on its own line.
+tokens. Blank lines in the transcript force caption line breaks, so you can keep a
+closing phrase on its own line.
 
 With `--timing-mode uniform`, the transcript words are distributed evenly across the
 clip duration instead of using whisper's word timings. This is useful for short or
