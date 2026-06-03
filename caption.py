@@ -249,40 +249,66 @@ def force_transcript_words(timed_words, transcript):
 
     Whisper's word timestamps are useful even when its tokenization is not. For
     product names like Vite, Rolldown, and Oxc it may split words into subword
-    tokens. When a transcript is provided, use its exact tokens for display and
-    map them onto Whisper's timing span.
+    tokens, and it transcribes the same spoken sound inconsistently (e.g. "veet"
+    as "V E ET" in one clip and "Vit" in another), so exact matching alone drifts.
+
+    Strategy: anchor the transcript words that DO match a Whisper token span
+    (scanning forward), then distribute any unmatched runs evenly across the real
+    time between the surrounding anchors. This keeps highlights in sync even when
+    a dense list of similar product names fails to match token-for-token.
     """
     exact = transcript_words(transcript)
     if not exact or not timed_words:
         return timed_words
 
-    aligned = []
+    n = len(timed_words)
+    SEARCH = 12  # how far ahead (in Whisper tokens) to look for an anchor match
+
+    # Pass 1: find anchors (transcript words that match a forward Whisper span).
+    matched = [None] * len(exact)  # e -> (start, end)
     i = 0
-    fallback_start = timed_words[0]["start"]
-    fallback_end = timed_words[-1]["end"]
-    fallback_step = max(0.01, fallback_end - fallback_start) / len(exact)
-
-    for exact_index, word in enumerate(exact):
+    for e, word in enumerate(exact):
         target = canonical_word(word)
-        match = None
-
-        for span in range(1, 6):
-            if i + span > len(timed_words):
+        if not target:
+            continue
+        found = None
+        for start in range(i, min(n, i + SEARCH + 1)):
+            for span in range(1, 6):
+                if start + span > n:
+                    break
+                combined = "".join(canonical_word(t["word"]) for t in timed_words[start:start + span])
+                if combined == target:
+                    found = (start, start + span - 1)
+                    break
+            if found:
                 break
-            combined = "".join(canonical_word(t["word"]) for t in timed_words[i:i + span])
-            if combined == target:
-                match = timed_words[i:i + span]
-                break
+        if found:
+            s, en = found
+            matched[e] = (timed_words[s]["start"], timed_words[en]["end"])
+            i = en + 1
 
-        if match:
-            aligned.append({"word": word, "start": match[0]["start"], "end": match[-1]["end"]})
-            i += len(match)
-        elif i < len(timed_words):
-            aligned.append({"word": word, "start": timed_words[i]["start"], "end": timed_words[i]["end"]})
-            i += 1
-        else:
-            start = fallback_start + fallback_step * exact_index
-            aligned.append({"word": word, "start": start, "end": start + fallback_step})
+    # Pass 2: emit anchors as-is; interpolate unmatched runs between anchors.
+    first_start = timed_words[0]["start"]
+    last_end = timed_words[-1]["end"]
+    aligned = []
+    e = 0
+    total = len(exact)
+    while e < total:
+        if matched[e] is not None:
+            aligned.append({"word": exact[e], "start": matched[e][0], "end": matched[e][1]})
+            e += 1
+            continue
+        j = e
+        while j < total and matched[j] is None:
+            j += 1
+        left = aligned[-1]["end"] if aligned else first_start
+        right = matched[j][0] if j < total else last_end
+        count = j - e
+        step = max(0.001, (right - left) / count)
+        for k in range(count):
+            start = left + step * k
+            aligned.append({"word": exact[e + k], "start": start, "end": start + step})
+        e = j
 
     return aligned
 
@@ -351,9 +377,14 @@ def _model_short_name(model_path):
     """Extract the model name for --dtw flag, e.g. 'medium.en' from 'ggml-medium.en.bin'."""
     name = Path(model_path).stem  # e.g. ggml-medium.en
     short = name.replace("ggml-", "")
-    if short == "large-v3-turbo":
-        return "large.v3.turbo"
-    return short
+    # whisper.cpp --dtw presets use dotted names for the large family.
+    dtw_aliases = {
+        "large-v3-turbo": "large.v3.turbo",
+        "large-v3": "large.v3",
+        "large-v2": "large.v2",
+        "large-v1": "large.v1",
+    }
+    return dtw_aliases.get(short, short)
 
 
 # ---------------------------------------------------------------------------
