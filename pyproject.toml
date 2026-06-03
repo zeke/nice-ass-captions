@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Burn stylish captions into videos using whisper and ffmpeg. Runs locally. Powered by ASS™"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pysubs2>=1.8.0"]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/zeke/nice-ass-captions"
@@ -18,3 +18,21 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 only-include = ["caption.py"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+# Keep it light: pyflakes (F) + the safe pycodestyle error subset + import sorting.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

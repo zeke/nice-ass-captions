@@ -9,13 +9,13 @@ Usage:
     python caption.py input.mp4 --output out.mp4 --words 5 --model medium.en
 """
 
-import re
-import os
-import sys
-import shutil
 import argparse
-import tempfile
+import os
+import re
+import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -325,9 +325,9 @@ def chunk_words(words, chunk_size):
 def sec_to_ass(seconds):
     """Float seconds -> ASS timestamp H:MM:SS.cc"""
     cs = int(round(seconds * 100))
-    h  = cs // 360000;  cs %= 360000
-    m  = cs // 6000;    cs %= 6000
-    s  = cs // 100;     cs %= 100
+    h, cs = divmod(cs, 360000)
+    m, cs = divmod(cs, 6000)
+    s, cs = divmod(cs, 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
@@ -427,9 +427,22 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         box_w    = total_text_w + PAD_X * 2
         box_left = cx - box_w / 2
 
+        # Per-chunk color overrides (--colorize per-chunk). Empty for global/off,
+        # where colors come from the style header instead.
+        chunk_colors = chunk.get("colors")
+        if chunk_colors:
+            box_override = (
+                rf"\1c{rgb_to_ass_color(chunk_colors['box_rgb'])}"
+                rf"\1a&H{chunk_colors['box_alpha']:02X}&"
+            )
+            text_override = rf"\1c{rgb_to_ass_color(chunk_colors['text_rgb'])}"
+        else:
+            box_override = ""
+            text_override = ""
+
         # Layer 0: rounded background box
         drawing  = rounded_rect(box_left, box_top, box_w, box_h, CORNER_R)
-        box_text = r"{\p1\an7\pos(0,0)}" + drawing + r"{\p0}"
+        box_text = r"{" + box_override + r"\p1\an7\pos(0,0)}" + drawing + r"{\p0}"
         lines.append(f"Dialogue: 0,{chunk_start_ts},{chunk_end_ts},Box,,0,0,0,,{box_text}")
 
         # Layer 1: caption text — one line per chunk, \1a animated per word
@@ -452,7 +465,8 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
                 )
             parts.append(word_tags + w["word"])
 
-        caption_text = pos_tag + " ".join(parts)
+        caption_prefix = (rf"{{{text_override}}}" if text_override else "") + pos_tag
+        caption_text = caption_prefix + " ".join(parts)
         lines.append(f"Dialogue: 1,{chunk_start_ts},{chunk_end_ts},Caption,,0,0,0,,{caption_text}")
 
     return header + "\n".join(lines) + "\n"
@@ -515,6 +529,12 @@ def rgb_to_ass(rgb, alpha=0):
     return f"&H{alpha:02X}{b:02X}{g:02X}{r:02X}"
 
 
+def rgb_to_ass_color(rgb):
+    r"""RGB tuple -> ASS \1c color literal &HBBGGRR&."""
+    r, g, b = [max(0, min(255, int(v))) for v in rgb]
+    return f"&H{b:02X}{g:02X}{r:02X}&"
+
+
 def srgb_to_linear(c):
     c = c / 255
     if c <= 0.03928:
@@ -548,13 +568,18 @@ def composite_box_over_video(box_rgb, box_alpha, video_rgb):
     return tuple(round(box_rgb[i] * opacity + video_rgb[i] * (1 - opacity)) for i in range(3))
 
 
-def extract_palette(input_path, ffmpeg_path, samples=9, frame_size=64):
-    """Sample frames and return (palette, pixels), where palette is frequent RGB buckets."""
-    duration = get_video_duration(input_path)
-    if duration > 0:
-        timestamps = [duration * (i + 1) / (samples + 1) for i in range(samples)]
-    else:
-        timestamps = [0]
+def extract_palette(input_path, ffmpeg_path, samples=9, frame_size=64, timestamps=None):
+    """Sample frames and return (palette, pixels), where palette is frequent RGB buckets.
+
+    If timestamps is given, those exact frame times (seconds) are sampled. Otherwise
+    samples are spread evenly across the whole video.
+    """
+    if timestamps is None:
+        duration = get_video_duration(input_path)
+        if duration > 0:
+            timestamps = [duration * (i + 1) / (samples + 1) for i in range(samples)]
+        else:
+            timestamps = [0]
 
     counts = {}
     pixels = []
@@ -613,9 +638,8 @@ def palette_pair_score(text_rgb, box_rgb, box_alpha, contrast):
     )
 
 
-def choose_palette_colors(input_path, ffmpeg_path, min_contrast=MIN_CONTRAST):
-    """Choose global text and box colors from the video palette with accessible contrast."""
-    palette, pixels = extract_palette(input_path, ffmpeg_path)
+def select_colors(palette, pixels, min_contrast=MIN_CONTRAST):
+    """Choose a text/box color pair from a palette with accessible contrast."""
     if not palette:
         return {
             "text": COL_TEXT,
@@ -724,8 +748,36 @@ def choose_palette_colors(input_path, ffmpeg_path, min_contrast=MIN_CONTRAST):
     }
 
 
+def choose_palette_colors(input_path, ffmpeg_path, min_contrast=MIN_CONTRAST):
+    """Choose one global text/box pair from the whole-video palette."""
+    palette, pixels = extract_palette(input_path, ffmpeg_path)
+    return select_colors(palette, pixels, min_contrast)
+
+
+def choose_chunk_colors(chunks, input_path, ffmpeg_path, min_contrast=MIN_CONTRAST):
+    """Attach a text/box pair to each chunk, sampled from the frame at its midpoint."""
+    for chunk in chunks:
+        midpoint = (chunk["start"] + chunk["end"]) / 2
+        palette, pixels = extract_palette(
+            input_path, ffmpeg_path, timestamps=[midpoint]
+        )
+        chunk["colors"] = select_colors(palette, pixels, min_contrast)
+    return chunks
+
+
 def rgb_to_hex(rgb):
     return "#" + "".join(f"{v:02X}" for v in rgb)
+
+
+def format_colors(colors):
+    """Human-readable summary of a chosen color pair for console output."""
+    fallback = " fallback" if colors.get("fallback") else ""
+    return (
+        f"text {rgb_to_hex(colors['text_rgb'])}, "
+        f"box {rgb_to_hex(colors['box_rgb'])} "
+        f"({100 * (1 - colors['box_alpha'] / 255):.0f}% opaque), "
+        f"contrast {colors['contrast']:.1f}:1{fallback}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -743,7 +795,7 @@ def main():
     parser.add_argument("--transcript", help="Raw transcript text file to use as a whisper prompt")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")
     parser.add_argument("--position", choices=("top", "center", "bottom"), default=CAPTION_POSITION, help=f"Caption position (default: {CAPTION_POSITION})")
-    parser.add_argument("--palette-colors", action="store_true", help="Derive text and background colors from the video palette")
+    parser.add_argument("--colorize", choices=("global", "per-chunk"), default=None, help="Derive colors from the video imagery: 'global' (one pair) or 'per-chunk' (per caption block)")
     parser.add_argument("--keep-tmp", action="store_true", help="Keep intermediate audio/wts files")
     args = parser.parse_args()
 
@@ -792,17 +844,10 @@ def main():
     if args.transcript:
         print(f"Transcript prompt: {args.transcript}")
     colors = None
-    if args.palette_colors:
+    if args.colorize == "global":
         print("Sampling video palette...")
         colors = choose_palette_colors(input_path, ffmpeg_full)
-        fallback = " fallback" if colors.get("fallback") else ""
-        print(
-            "Palette colors: "
-            f"text {rgb_to_hex(colors['text_rgb'])}, "
-            f"box {rgb_to_hex(colors['box_rgb'])} "
-            f"({100 * (1 - colors['box_alpha'] / 255):.0f}% opaque), "
-            f"contrast {colors['contrast']:.1f}:1{fallback}"
-        )
+        print("Colorize: " + format_colors(colors))
     print()
 
     tmp_dir = tempfile.mkdtemp(prefix="nice-ass-captions-")
@@ -819,6 +864,12 @@ def main():
 
         chunks = chunk_words(words, args.words)
         print(f"  {len(chunks)} chunks of ~{args.words} words")
+
+        if args.colorize == "per-chunk":
+            print("Sampling per-chunk colors...")
+            choose_chunk_colors(chunks, input_path, ffmpeg_full)
+            for n, chunk in enumerate(chunks, 1):
+                print(f"  block {n}: " + format_colors(chunk["colors"]))
 
         print("Generating ASS captions...")
         ass_path = os.path.join(tmp_dir, "captions.ass")
