@@ -6,7 +6,7 @@ Full pipeline: extract audio → transcribe with whisper.cpp → generate ASS �
 
 Usage:
     python caption.py input.mp4
-    python caption.py input.mp4 --output out.mp4 --words 5 --model medium.en
+    python caption.py input.mp4 --output out.mp4 --words 5 --model large-v3-turbo
 """
 
 import argparse
@@ -66,13 +66,15 @@ COMPOUND_MERGES = [
 # ---------------------------------------------------------------------------
 
 MODEL_DIR  = Path.home() / ".cache" / "nice-ass-captions"
-MODEL_NAME = "ggml-medium.en.bin"
+MODEL_NAME = "ggml-large-v3-turbo.bin"
 
 MODEL_SIZES = {
-    "tiny.en":   "75MB",
-    "base.en":   "142MB",
-    "small.en":  "466MB",
-    "medium.en": "1.5GB",
+    "tiny.en":        "75MB",
+    "base.en":        "142MB",
+    "small.en":       "466MB",
+    "medium.en":      "1.5GB",
+    "large-v3-turbo": "1.6GB",
+    "large-v3":       "3.1GB",
 }
 
 # ---------------------------------------------------------------------------
@@ -128,7 +130,7 @@ def resolve_model(model_arg):
         print_model_download_help()
         sys.exit(1)
 
-    # Auto-detect: look for any ggml-*.bin in MODEL_DIR, prefer medium.en
+    # Auto-detect: look for any ggml-*.bin in MODEL_DIR, prefer large-v3-turbo
     if MODEL_DIR.exists():
         preferred = MODEL_DIR / MODEL_NAME
         if preferred.exists():
@@ -151,7 +153,7 @@ def print_model_download_help():
         print(f"  curl -L -o {MODEL_DIR}/ggml-{name}.bin \\")
         print(f"    https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-{name}.bin")
     print()
-    print("Recommended: medium.en offers the best accuracy/speed tradeoff.")
+    print("Recommended: large-v3-turbo offers the best accuracy/speed tradeoff.")
 
 
 # ---------------------------------------------------------------------------
@@ -214,9 +216,15 @@ def combine_prompts(prompt, transcript_prompt):
 
 
 def _model_short_name(model_path):
-    """Extract the model name for --dtw flag, e.g. 'medium.en' from 'ggml-medium.en.bin'."""
-    name = Path(model_path).stem  # e.g. ggml-medium.en
-    return name.replace("ggml-", "")
+    """Extract the model name for --dtw flag, e.g. 'medium.en' from 'ggml-medium.en.bin'.
+
+    whisper.cpp's --dtw presets for large models are dotted (large.v3, large.v3.turbo)
+    while the model filenames are hyphenated (ggml-large-v3-turbo.bin), so convert those.
+    """
+    name = Path(model_path).stem.replace("ggml-", "")  # e.g. medium.en, large-v3-turbo
+    if name.startswith("large-"):
+        name = name.replace("-", ".")  # large-v3-turbo -> large.v3.turbo
+    return name
 
 
 # ---------------------------------------------------------------------------
@@ -790,7 +798,7 @@ def main():
     )
     parser.add_argument("input", help="Input video file")
     parser.add_argument("-o", "--output", help="Output video path (default: <input>-captioned.mp4)")
-    parser.add_argument("--model", help="Whisper model path or name (e.g. medium.en)")
+    parser.add_argument("--model", help="Whisper model path or name (e.g. large-v3-turbo)")
     parser.add_argument("--prompt", help="Initial prompt for whisper (improves proper noun accuracy)")
     parser.add_argument("--transcript", help="Raw transcript text file to use as a whisper prompt")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")

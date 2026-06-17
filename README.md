@@ -125,7 +125,7 @@ Colorize: text #F5E9C8, box #1A140B (72% opaque), contrast 9.3:1   # global
 | Flag | Default | Description |
 | ---- | ------- | ----------- |
 | `-o, --output PATH` | `<input>-captioned.mp4` | Output file path |
-| `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-medium.en.bin` | Whisper model path or short name (e.g. `small.en`) |
+| `--model PATH\|NAME` | `~/.cache/nice-ass-captions/ggml-large-v3-turbo.bin` | Whisper model path or short name (e.g. `small.en`) |
 | `--prompt TEXT` | — | Initial prompt for whisper — improves accuracy for domain-specific proper nouns |
 | `--transcript PATH` | — | Raw transcript text file to use as a whisper prompt |
 | `--words N` | `5` | Words per caption chunk |
@@ -140,9 +140,9 @@ Models live in `~/.cache/nice-ass-captions/`. Download with:
 ```sh
 mkdir -p ~/.cache/nice-ass-captions
 
-# medium.en — recommended (best accuracy/speed tradeoff)
-curl -L -o ~/.cache/nice-ass-captions/ggml-medium.en.bin \
-  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin
+# large-v3-turbo — recommended/default (best accuracy/speed tradeoff)
+curl -L -o ~/.cache/nice-ass-captions/ggml-large-v3-turbo.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin
 
 # small.en — faster, slightly less accurate
 curl -L -o ~/.cache/nice-ass-captions/ggml-small.en.bin \
@@ -154,9 +154,11 @@ curl -L -o ~/.cache/nice-ass-captions/ggml-small.en.bin \
 | `tiny.en` | 75MB | Fastest, basic accuracy |
 | `base.en` | 142MB | Fast, decent accuracy |
 | `small.en` | 466MB | Good balance |
-| `medium.en` | 1.5GB | Best accuracy, still fast on Apple Silicon |
+| `medium.en` | 1.5GB | High accuracy, English-only |
+| `large-v3-turbo` | 1.6GB | Recommended/default, multilingual, fast on Apple Silicon |
+| `large-v3` | 3.1GB | Highest accuracy, multilingual, slower |
 
-On Apple Silicon, whisper.cpp runs via [Metal](https://developer.apple.com/metal/) (GPU) — `medium.en` transcribes a 2-minute video in under 10 seconds.
+On Apple Silicon, whisper.cpp runs via [Metal](https://developer.apple.com/metal/) (GPU), so even the large models transcribe a short video in seconds.
 
 ## Style
 

@@ -248,6 +248,8 @@ def test_read_transcript_prompt_missing_raises():
 def test_model_short_name():
     assert caption._model_short_name("/x/ggml-medium.en.bin") == "medium.en"
     assert caption._model_short_name("ggml-base.en.bin") == "base.en"
+    assert caption._model_short_name("ggml-large-v3.bin") == "large.v3"
+    assert caption._model_short_name("/x/ggml-large-v3-turbo.bin") == "large.v3.turbo"
 
 
 def test_rounded_rect_is_a_drawing_command():
