@@ -16,7 +16,7 @@ Instructions for agents working with this repo.
 
 ```sh
 uv run caption video.mp4
-uv run caption video.mp4 --output out.mp4 --words 5 --model medium.en
+uv run caption video.mp4 --output out.mp4 --words 5 --model large-v3-turbo
 uv run caption video.mp4 --prompt "Cloudflare, WebAssembly, MyProductName"
 uv run caption video.mp4 --transcript script.txt
 uv run caption video.mp4 --colorize global
@@ -29,11 +29,16 @@ uv run caption video.mp4 --position top
 Default model directory: `~/.cache/nice-ass-captions/`
 
 Models on this machine (zeke's Mac):
-- `~/.cache/nice-ass-captions/ggml-medium.en.bin` (1.5GB, recommended)
+- `~/.cache/nice-ass-captions/ggml-large-v3-turbo.bin` (1.6GB, recommended/default)
+- `~/.cache/nice-ass-captions/ggml-large-v3.bin` (3.1GB, highest accuracy)
+- `~/.cache/nice-ass-captions/ggml-medium.en.bin` (1.5GB)
 - `~/.cache/nice-ass-captions/ggml-small.en.bin` (466MB)
 - `~/.cache/nice-ass-captions/ggml-base.en.bin` (142MB)
 
-The script auto-detects any `ggml-*.bin` file in that directory, preferring `medium.en`.
+The script auto-detects any `ggml-*.bin` file in that directory, preferring `large-v3-turbo`.
+
+Note: whisper.cpp's `--dtw` presets for large models are dotted (`large.v3`, `large.v3.turbo`)
+while the filenames are hyphenated; `_model_short_name()` converts `large-*` names accordingly.
 
 ## ffmpeg paths
 
@@ -95,7 +100,7 @@ caption text.
 ## Common failure modes
 
 **"No whisper model found"**
-Download one: `curl -L -o ~/.cache/nice-ass-captions/ggml-medium.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin`
+Download one: `curl -L -o ~/.cache/nice-ass-captions/ggml-large-v3-turbo.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin`
 
 **"No ffmpeg with libass"**
 Install: `brew install ffmpeg-full` (the standard `ffmpeg` formula doesn't include libass)
