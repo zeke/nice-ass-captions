@@ -167,10 +167,10 @@ All visual parameters are constants at the top of `caption.py`:
 | Constant | Default | Description |
 | -------- | ------- | ----------- |
 | `FONT_NAME` | `Arial` | Caption font family |
-| `FONT_SIZE` | `72` | Font size in script pixels |
-| `PAD_X` | `24` | Horizontal padding inside background box |
-| `PAD_Y` | `28` | Vertical padding inside background box |
-| `CORNER_R` | `18` | Background box corner radius |
+| `FONT_SIZE` | `56` | Font size in script pixels |
+| `PAD_X` | `19` | Horizontal padding inside background box |
+| `PAD_Y` | `22` | Vertical padding inside background box |
+| `CORNER_R` | `14` | Background box corner radius |
 | `MARGIN_BOTTOM` | `80` | Distance from bottom of frame to text |
 | `CAPTION_POSITION` | `bottom` | Default caption position: `top`, `center`, or `bottom` |
 | `ALPHA_DIM` | `&H99&` | Inactive word opacity (~60% opaque) |

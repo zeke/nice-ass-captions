@@ -26,13 +26,16 @@ VIDEO_WIDTH   = 1920
 VIDEO_HEIGHT  = 1080
 
 FONT_NAME     = "Arial"
-FONT_SIZE     = 72          # points; scale with video resolution
+FONT_SIZE     = 44          # points; scale with video resolution
 
-PAD_X         = 24          # horizontal padding inside box (pixels)
-PAD_Y         = 28          # vertical padding inside box (pixels)
-CORNER_R      = 18          # box corner radius (pixels)
+PAD_X         = 15          # horizontal padding inside box (pixels)
+PAD_Y         = 17          # vertical padding inside box (pixels)
+CORNER_R      = 11          # box corner radius (pixels)
 
 MARGIN_BOTTOM = 80          # distance from bottom of frame to text baseline
+
+MAX_CAPTION_WIDTH_RATIO = 0.90  # max caption box width, as a fraction of video width
+LINE_SPACING            = 1.25  # vertical spacing between wrapped lines, as a multiple of FONT_SIZE
 
 # ASS alpha: 0x00 = fully opaque, 0xFF = fully transparent
 ALPHA_DIM     = "&H99&"     # inactive words (~60% opaque)
@@ -59,6 +62,12 @@ COMPOUND_MERGES = [
     ["b", "rowse"],            # browse
     ["b", "rows", "ing"],      # browsing
     ["b", "rows", "ed"],       # browsed
+    ["cla", "ude"],            # Claude (tokenizer split A)
+    ["claud", "e"],            # Claude (tokenizer split B)
+    ["chat", "g", "p", "t"],   # ChatGPT
+    ["code", "x"],             # Codex
+    ["blo", "at"],             # bloat
+    ["un", "ad", "ul", "ter", "ated"],  # unadulterated
 ]
 
 # ---------------------------------------------------------------------------
@@ -296,7 +305,7 @@ def parse_wts(wts_path):
 
     # Merge trailing punctuation and contraction suffixes into preceding word
     TRAILING_PUNCT = re.compile(r'^[,\.!\?;:\-]+$')
-    CONTRACTION    = re.compile(r"^'[a-zA-Z]{1,2}$")  # 't, 's, 're, 've, 'll, 'd, 'm
+    CONTRACTION    = re.compile(r"^['\u2018\u2019][a-zA-Z]{1,2}$")  # 't, 's, 're, 've, 'll, 'd, 'm — straight or curly apostrophe
 
     words = []
     for tok in raw_tokens:
@@ -383,22 +392,61 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 def get_caption_layout(position, video_width, video_height):
     cx = video_width // 2
-    text_h = FONT_SIZE
-    box_h = text_h + PAD_Y * 2
 
     if position == "top":
         text_y = MARGIN_BOTTOM + PAD_Y
-        box_top = MARGIN_BOTTOM
-        return "8", cx, text_y, box_top
+        return "8", cx, text_y
     if position == "center":
         text_y = video_height // 2
-        box_top = (video_height - box_h) / 2
-        return "5", cx, text_y, box_top
+        return "5", cx, text_y
     if position == "bottom":
         text_y = video_height - MARGIN_BOTTOM
-        box_top = text_y - text_h - PAD_Y
-        return "2", cx, text_y, box_top
+        return "2", cx, text_y
     raise ValueError(f"Invalid caption position: {position}")
+
+
+def compute_box_top(position, text_y, box_h, video_height):
+    """Box top position, accounting for a variable box height (multi-line
+    chunks). Each anchor grows the box in the direction away from its edge:
+    top-anchored boxes grow downward, bottom-anchored boxes grow upward,
+    center-anchored boxes grow symmetrically."""
+    if position == "top":
+        return text_y - PAD_Y
+    if position == "center":
+        return (video_height - box_h) / 2
+    if position == "bottom":
+        return text_y - box_h + PAD_Y
+    raise ValueError(f"Invalid caption position: {position}")
+
+
+def estimate_word_width(word, font_size=FONT_SIZE):
+    return len(word) * font_size * 0.52
+
+
+def wrap_chunk_words(chunk_words, max_text_width, font_size=FONT_SIZE):
+    """Greedily pack words into lines that fit within max_text_width."""
+    space_w = font_size * 0.28
+    lines = []
+    current = []
+    current_w = 0.0
+    for w in chunk_words:
+        word_w = estimate_word_width(w["word"], font_size)
+        added_w = word_w if not current else word_w + space_w
+        if current and current_w + added_w > max_text_width:
+            lines.append(current)
+            current = [w]
+            current_w = word_w
+        else:
+            current.append(w)
+            current_w += added_w
+    if current:
+        lines.append(current)
+    return lines
+
+
+def line_width(line, font_size=FONT_SIZE):
+    space_w = font_size * 0.28
+    return sum(estimate_word_width(w["word"], font_size) for w in line) + space_w * (len(line) - 1)
 
 
 def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None, position=CAPTION_POSITION):
@@ -412,10 +460,10 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         box_col = colors.get("box", COL_BOX),
     )
 
-    text_h = FONT_SIZE
-    box_h  = text_h + PAD_Y * 2
-    align, cx, text_y, box_top = get_caption_layout(position, video_width, video_height)
+    align, cx, text_y = get_caption_layout(position, video_width, video_height)
     pos_tag = rf"{{\an{align}\pos({cx},{text_y})}}"
+
+    max_text_width = video_width * MAX_CAPTION_WIDTH_RATIO - PAD_X * 2
 
     lines = []
 
@@ -426,14 +474,16 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         chunk_start_ts = sec_to_ass(chunk_start)
         chunk_end_ts   = sec_to_ass(chunk_end)
 
-        # Estimate box width from character counts
-        space_w = FONT_SIZE * 0.28
-        total_text_w = (
-            sum(len(w["word"]) * FONT_SIZE * 0.52 for w in chunk_words)
-            + space_w * (len(chunk_words) - 1)
-        )
-        box_w    = total_text_w + PAD_X * 2
+        # Wrap words onto multiple lines if the chunk is too wide for the frame
+        word_lines = wrap_chunk_words(chunk_words, max_text_width)
+
+        box_w    = max(line_width(wl) for wl in word_lines) + PAD_X * 2
         box_left = cx - box_w / 2
+
+        line_height = FONT_SIZE * LINE_SPACING
+        text_h = line_height * len(word_lines)
+        box_h  = text_h + PAD_Y * 2
+        box_top = compute_box_top(position, text_y, box_h, video_height)
 
         # Per-chunk color overrides (--colorize per-chunk). Empty for global/off,
         # where colors come from the style header instead.
@@ -453,28 +503,32 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         box_text = r"{" + box_override + r"\p1\an7\pos(0,0)}" + drawing + r"{\p0}"
         lines.append(f"Dialogue: 0,{chunk_start_ts},{chunk_end_ts},Box,,0,0,0,,{box_text}")
 
-        # Layer 1: caption text — one line per chunk, \1a animated per word
-        parts = []
-        for i, w in enumerate(chunk_words):
-            t_in  = max(0, int((w["start"] - chunk_start) * 1000))
-            t_out = int((w["end"] - chunk_start) * 1000)
+        # Layer 1: caption text — one or more lines per chunk, \1a animated per word
+        rendered_lines = []
+        for word_line in word_lines:
+            parts = []
+            for w in word_line:
+                is_first_word_overall = w is chunk_words[0]
+                t_in  = max(0, int((w["start"] - chunk_start) * 1000))
+                t_out = int((w["end"] - chunk_start) * 1000)
 
-            if i == 0:
-                # First word starts bright (t=0 snap is unreliable in libass)
-                word_tags = (
-                    rf"{{\1a{ALPHA_BRIGHT}"
-                    rf"\t({t_out},{t_out},\1a{ALPHA_DIM})}}"
-                )
-            else:
-                word_tags = (
-                    rf"{{\1a{ALPHA_DIM}"
-                    rf"\t({t_in},{t_in},\1a{ALPHA_BRIGHT})"
-                    rf"\t({t_out},{t_out},\1a{ALPHA_DIM})}}"
-                )
-            parts.append(word_tags + w["word"])
+                if is_first_word_overall:
+                    # First word starts bright (t=0 snap is unreliable in libass)
+                    word_tags = (
+                        rf"{{\1a{ALPHA_BRIGHT}"
+                        rf"\t({t_out},{t_out},\1a{ALPHA_DIM})}}"
+                    )
+                else:
+                    word_tags = (
+                        rf"{{\1a{ALPHA_DIM}"
+                        rf"\t({t_in},{t_in},\1a{ALPHA_BRIGHT})"
+                        rf"\t({t_out},{t_out},\1a{ALPHA_DIM})}}"
+                    )
+                parts.append(word_tags + w["word"])
+            rendered_lines.append(" ".join(parts))
 
         caption_prefix = (rf"{{{text_override}}}" if text_override else "") + pos_tag
-        caption_text = caption_prefix + " ".join(parts)
+        caption_text = caption_prefix + r"\N".join(rendered_lines)
         lines.append(f"Dialogue: 1,{chunk_start_ts},{chunk_end_ts},Caption,,0,0,0,,{caption_text}")
 
     return header + "\n".join(lines) + "\n"
