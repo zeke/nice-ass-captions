@@ -67,6 +67,7 @@ COMPOUND_MERGES = [
     ["chat", "g", "p", "t"],   # ChatGPT
     ["code", "x"],             # Codex
     ["blo", "at"],             # bloat
+    ["blo", "ated"],           # bloated
     ["un", "ad", "ul", "ter", "ated"],  # unadulterated
 ]
 
