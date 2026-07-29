@@ -59,6 +59,10 @@ COMPOUND_MERGES = [
     ["b", "rowse"],            # browse
     ["b", "rows", "ing"],      # browsing
     ["b", "rows", "ed"],       # browsed
+    ["cla", "ude"],            # Claude
+    ["chat", "g", "p", "t"],   # ChatGPT
+    ["code", "x"],             # Codex
+    ["blo", "at"],             # bloat
 ]
 
 # ---------------------------------------------------------------------------
@@ -296,7 +300,7 @@ def parse_wts(wts_path):
 
     # Merge trailing punctuation and contraction suffixes into preceding word
     TRAILING_PUNCT = re.compile(r'^[,\.!\?;:\-]+$')
-    CONTRACTION    = re.compile(r"^'[a-zA-Z]{1,2}$")  # 't, 's, 're, 've, 'll, 'd, 'm
+    CONTRACTION    = re.compile(r"^['\u2018\u2019][a-zA-Z]{1,2}$")  # 't, 's, 're, 've, 'll, 'd, 'm — straight or curly apostrophe
 
     words = []
     for tok in raw_tokens:
