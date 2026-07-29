@@ -26,11 +26,11 @@ VIDEO_WIDTH   = 1920
 VIDEO_HEIGHT  = 1080
 
 FONT_NAME     = "Arial"
-FONT_SIZE     = 72          # points; scale with video resolution
+FONT_SIZE     = 56          # points; scale with video resolution
 
-PAD_X         = 24          # horizontal padding inside box (pixels)
-PAD_Y         = 28          # vertical padding inside box (pixels)
-CORNER_R      = 18          # box corner radius (pixels)
+PAD_X         = 19          # horizontal padding inside box (pixels)
+PAD_Y         = 22          # vertical padding inside box (pixels)
+CORNER_R      = 14          # box corner radius (pixels)
 
 MARGIN_BOTTOM = 80          # distance from bottom of frame to text baseline
 
@@ -63,6 +63,7 @@ COMPOUND_MERGES = [
     ["chat", "g", "p", "t"],   # ChatGPT
     ["code", "x"],             # Codex
     ["blo", "at"],             # bloat
+    ["un", "ad", "ul", "ter", "ated"],  # unadulterated
 ]
 
 # ---------------------------------------------------------------------------
