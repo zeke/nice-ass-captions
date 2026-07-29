@@ -59,7 +59,8 @@ COMPOUND_MERGES = [
     ["b", "rowse"],            # browse
     ["b", "rows", "ing"],      # browsing
     ["b", "rows", "ed"],       # browsed
-    ["cla", "ude"],            # Claude
+    ["cla", "ude"],            # Claude (tokenizer split A)
+    ["claud", "e"],            # Claude (tokenizer split B)
     ["chat", "g", "p", "t"],   # ChatGPT
     ["code", "x"],             # Codex
     ["blo", "at"],             # bloat
