@@ -22,6 +22,7 @@ uv run caption video.mp4 --transcript script.txt
 uv run caption video.mp4 --colorize global
 uv run caption video.mp4 --colorize per-chunk
 uv run caption video.mp4 --position top
+uv run caption video.mp4 --words-json precomputed-words.json
 ```
 
 ## Model paths
@@ -96,6 +97,64 @@ Use `--transcript script.txt` when raw captions or a script are available. The f
 passed to whisper.cpp as an initial prompt with `--carry-initial-prompt`; this can help
 spellings and punctuation, but it is not forced alignment and does not guarantee exact
 caption text.
+
+## Using --words-json with an external model
+
+`--words-json path.json` bypasses `extract_audio()`/`transcribe()`/`parse_wts()` entirely and
+feeds a pre-built `[{word, start, end}, ...]` array (seconds, absolute video timeline, sorted
+by `start`) straight into `chunk_words()`. No whisper.cpp, no model file, no ffmpeg audio
+extraction. See the README's "Bringing your own word timings" section for when this is the
+right call (multilingual/code-switched audio, or when you already have a known-correct
+transcript to align against).
+
+This was built and proven out captioning a multilingual (English/Spanish/French) phone-call
+recording for the `dial-a-repo` project, using [Replicate](https://replicate.com)'s hosted
+models instead of local whisper.cpp. Two real gotchas came out of that, worth knowing before
+reaching for a Replicate forced-alignment model again:
+
+**`quinten-kamphuis/forced-alignment` (torchaudio MMS) silently falls back to uniform word
+spacing on failure — it does not raise an error.** Its `predict.py` wraps the whole alignment
+call in a bare `except Exception`, and on failure divides the clip's total duration evenly
+across all words instead. The output still looks like a normal `{word, start, end}` list, so
+nothing about the response signals that timing is wrong. Detect it by checking whether every
+word has the exact same `end - start` duration:
+
+```python
+durs = set(round(w["end"] - w["start"], 4) for w in words)
+uniform_fallback = len(durs) == 1 and len(words) > 3
+```
+
+Two known triggers for this specific model:
+
+- **Hyphens in the script.** `-` isn't in the model's character dictionary. A word like
+  `dial-a-repo` or `veux-tu` reproducibly broke alignment for that whole clip. Fix: replace
+  hyphens with spaces in the script text before sending it (`dial a repo`, `veux tu`) — the
+  model still returns each piece as a separate timed word, which is fine for captioning.
+- **Clips longer than roughly 10–15 seconds of dense speech.** Reproducible on a real 14.5s/25-word
+  clip that failed every retry, while the same text split into two ~7s halves each aligned
+  correctly. The model doesn't chunk long audio internally, so treat anything past ~10s as at
+  risk and split by sentence/utterance boundaries rather than assuming a single call over a
+  multi-minute file will work.
+
+**Whisper-family models lock onto one language for the whole file.** Confirmed with local
+`whisper-cli --model large-v3 -l auto` on real code-switched audio: it transcribed a Spanish
+question ("¿Puedes hablar en español también?") as unrelated English text ("Tell me, can you
+speak Spanish as well?") instead of switching languages. This is a fundamental limitation of
+how these models decode (language is normally detected once from the first ~30s and reused for
+the rest of the file), not specific to whisper.cpp — hosted multilingual Whisper variants
+(`whisperx`, `incredibly-fast-whisper`) have the same behavior. If a clip code-switches, either
+slice it at the language boundaries and transcribe/align each slice with its own forced
+language, or use forced alignment against known-correct multilingual text instead of
+transcription (see above).
+
+**Whisper-family word-level timestamp quality varies more at the transcript level than the
+timestamp level.** Comparing `victor-upmeet/whisperx` (`align_output=True`) against
+`vaibhavs10/incredibly-fast-whisper` (`timestamp="word"`) on the same ~3-minute single-speaker
+English narration clip, timestamps from both were comparably accurate, but `whisperx` degraded
+to a lowercase, unpunctuated run-on for roughly the back half of the clip while
+`incredibly-fast-whisper` kept consistent capitalization and punctuation throughout. Worth
+re-comparing on a case-by-case basis rather than assuming one is always better — this was one
+data point on one clip.
 
 ## Common failure modes
 

@@ -131,6 +131,7 @@ Colorize: text #F5E9C8, box #1A140B (72% opaque), contrast 9.3:1   # global
 | `--words N` | `5` | Words per caption chunk |
 | `--position top\|center\|bottom` | `bottom` | Caption position |
 | `--colorize global\|per-chunk` | off | Derive text and background colors from the video imagery (whole-video pair or per-block) |
+| `--words-json PATH` | — | Skip whisper.cpp entirely and burn captions from a pre-computed `[{word, start, end}, ...]` JSON file |
 | `--keep-tmp` | off | Keep intermediate `.wav` and `.wts` files |
 
 ## Models
@@ -159,6 +160,41 @@ curl -L -o ~/.cache/nice-ass-captions/ggml-small.en.bin \
 | `large-v3` | 3.1GB | Highest accuracy, multilingual, slower |
 
 On Apple Silicon, whisper.cpp runs via [Metal](https://developer.apple.com/metal/) (GPU), so even the large models transcribe a short video in seconds.
+
+## Bringing your own word timings
+
+`--words-json path.json` skips audio extraction and whisper.cpp entirely and goes straight
+to chunking and ASS generation:
+
+```sh
+uv run caption video.mp4 --words-json words.json
+```
+
+The file is a flat JSON array of `{"word": str, "start": seconds, "end": seconds}`, sorted
+by `start`, covering the whole video's timeline (not per-segment-relative). This is the same
+shape `parse_wts()` produces internally, so it slots into the existing `chunk_words()` →
+`build_ass()` → `burn_captions()` pipeline unchanged.
+
+Use this when local whisper.cpp isn't the right tool for the job:
+
+- **The `.en` models are English-only.** For multilingual or code-switched audio (a call or
+  interview that shifts languages mid-clip), `.en` models can't transcribe the non-English
+  parts at all, and even the multilingual `large-v3` model typically detects a language once
+  from the first ~30 seconds and decodes the rest of the file in that language — it will
+  mistranslate or hallucinate English text over genuine non-English speech rather than
+  switching languages mid-file.
+- **You already have a correct transcript.** If the exact words are known ahead of time (a
+  call transcript, a script, subtitles from another source), a forced-alignment model can
+  time-align that known-correct text against the audio instead of re-transcribing it —
+  sidestepping transcription errors (and the multilingual problem above) entirely, since
+  alignment only has to solve timing, not word identity.
+- **Speed.** A hosted model can be faster than local whisper.cpp for one-off or
+  multi-language jobs, at the cost of needing an API key and uploading audio.
+
+No API integration lives in this repo (staying dependency-free and local-only is deliberate,
+see Features above) — build the JSON with an external script and pass it in with
+`--words-json`. See [AGENTS.md](./AGENTS.md#using---words-json-with-an-external-model) for a
+worked example against Replicate's forced-alignment models and the gotchas found using one.
 
 ## Style
 
