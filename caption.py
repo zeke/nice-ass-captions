@@ -451,13 +451,13 @@ def line_width(line, font_size=FONT_SIZE):
     return sum(estimate_word_width(w["word"], font_size) for w in line) + space_w * (len(line) - 1)
 
 
-def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None, position=CAPTION_POSITION):
+def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors=None, position=CAPTION_POSITION, box=True, font_size=FONT_SIZE):
     colors = colors or {}
     header = ASS_HEADER.format(
         width   = video_width,
         height  = video_height,
         font    = FONT_NAME,
-        size    = FONT_SIZE,
+        size    = font_size,
         text_col = colors.get("text", COL_TEXT),
         box_col = colors.get("box", COL_BOX),
     )
@@ -477,12 +477,12 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
         chunk_end_ts   = sec_to_ass(chunk_end)
 
         # Wrap words onto multiple lines if the chunk is too wide for the frame
-        word_lines = wrap_chunk_words(chunk_words, max_text_width)
+        word_lines = wrap_chunk_words(chunk_words, max_text_width, font_size=font_size)
 
-        box_w    = max(line_width(wl) for wl in word_lines) + PAD_X * 2
+        box_w    = max(line_width(wl, font_size=font_size) for wl in word_lines) + PAD_X * 2
         box_left = cx - box_w / 2
 
-        line_height = FONT_SIZE * LINE_SPACING
+        line_height = font_size * LINE_SPACING
         text_h = line_height * len(word_lines)
         box_h  = text_h + PAD_Y * 2
         box_top = compute_box_top(position, text_y, box_h, video_height)
@@ -501,9 +501,10 @@ def build_ass(chunks, video_width=VIDEO_WIDTH, video_height=VIDEO_HEIGHT, colors
             text_override = ""
 
         # Layer 0: rounded background box
-        drawing  = rounded_rect(box_left, box_top, box_w, box_h, CORNER_R)
-        box_text = r"{" + box_override + r"\p1\an7\pos(0,0)}" + drawing + r"{\p0}"
-        lines.append(f"Dialogue: 0,{chunk_start_ts},{chunk_end_ts},Box,,0,0,0,,{box_text}")
+        if box:
+            drawing  = rounded_rect(box_left, box_top, box_w, box_h, CORNER_R)
+            box_text = r"{" + box_override + r"\p1\an7\pos(0,0)}" + drawing + r"{\p0}"
+            lines.append(f"Dialogue: 0,{chunk_start_ts},{chunk_end_ts},Box,,0,0,0,,{box_text}")
 
         # Layer 1: caption text — one or more lines per chunk, \1a animated per word
         rendered_lines = []
@@ -862,6 +863,8 @@ def main():
     parser.add_argument("--position", choices=("top", "center", "bottom"), default=CAPTION_POSITION, help=f"Caption position (default: {CAPTION_POSITION})")
     parser.add_argument("--colorize", choices=("global", "per-chunk"), default=None, help="Derive colors from the video imagery: 'global' (one pair) or 'per-chunk' (per caption block)")
     parser.add_argument("--keep-tmp", action="store_true", help="Keep intermediate audio/wts files")
+    parser.add_argument("--no-box", action="store_true", help="Don't draw the background box behind captions")
+    parser.add_argument("--font-size", type=int, default=FONT_SIZE, help=f"Caption font size in points (default: {FONT_SIZE})")
     args = parser.parse_args()
 
     input_path = args.input
@@ -947,7 +950,7 @@ def main():
 
         print("Generating ASS captions...")
         ass_path = os.path.join(tmp_dir, "captions.ass")
-        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors, position=args.position)
+        ass = build_ass(chunks, video_width=width, video_height=height, colors=colors, position=args.position, box=not args.no_box, font_size=args.font_size)
         with open(ass_path, "w", encoding="utf-8") as f:
             f.write(ass)
 
