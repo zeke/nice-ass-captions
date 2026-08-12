@@ -10,6 +10,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -856,6 +857,7 @@ def main():
     parser.add_argument("--model", help="Whisper model path or name (e.g. large-v3-turbo)")
     parser.add_argument("--prompt", help="Initial prompt for whisper (improves proper noun accuracy)")
     parser.add_argument("--transcript", help="Raw transcript text file to use as a whisper prompt")
+    parser.add_argument("--words-json", help="Path to a JSON file of pre-computed [{word, start, end}, ...] word timings. Skips whisper.cpp transcription entirely.")
     parser.add_argument("--words", type=int, default=WORDS_PER_CHUNK, help=f"Words per caption chunk (default: {WORDS_PER_CHUNK})")
     parser.add_argument("--position", choices=("top", "center", "bottom"), default=CAPTION_POSITION, help=f"Caption position (default: {CAPTION_POSITION})")
     parser.add_argument("--colorize", choices=("global", "per-chunk"), default=None, help="Derive colors from the video imagery: 'global' (one pair) or 'per-chunk' (per caption block)")
@@ -885,11 +887,12 @@ def main():
         output_path = str(Path(input_path).parent / f"{stem}-captioned.mp4")
 
     # Check dependencies
-    whisper = find_whisper_cli()
-    if not whisper:
-        print("Error: whisper-cli not found in PATH.")
-        print("Install with: brew install whisper-cpp")
-        sys.exit(1)
+    if not args.words_json:
+        whisper = find_whisper_cli()
+        if not whisper:
+            print("Error: whisper-cli not found in PATH.")
+            print("Install with: brew install whisper-cpp")
+            sys.exit(1)
 
     ffmpeg_full = find_ffmpeg_with_libass()
     if not ffmpeg_full:
@@ -897,12 +900,15 @@ def main():
         print("Install with: brew install ffmpeg-full")
         sys.exit(1)
 
-    model_path = resolve_model(args.model)
+    model_path = None if args.words_json else resolve_model(args.model)
 
     # Detect video dimensions
     width, height = get_video_dimensions(input_path)
     print(f"Video: {width}x{height}")
-    print(f"Model: {model_path}")
+    if args.words_json:
+        print(f"Words: {args.words_json} (skipping whisper transcription)")
+    else:
+        print(f"Model: {model_path}")
     print(f"Output: {output_path}")
     if args.transcript:
         print(f"Transcript prompt: {args.transcript}")
@@ -915,14 +921,19 @@ def main():
 
     tmp_dir = tempfile.mkdtemp(prefix="nice-ass-captions-")
     try:
-        print("Extracting audio...")
-        wav_path = extract_audio(input_path, tmp_dir)
+        if args.words_json:
+            print("Loading pre-computed word timings...")
+            with open(args.words_json, encoding="utf-8") as f:
+                words = json.load(f)
+        else:
+            print("Extracting audio...")
+            wav_path = extract_audio(input_path, tmp_dir)
 
-        print("Transcribing with whisper.cpp...")
-        wts_path = transcribe(wav_path, model_path, prompt, tmp_dir, carry_initial_prompt=bool(transcript_prompt))
+            print("Transcribing with whisper.cpp...")
+            wts_path = transcribe(wav_path, model_path, prompt, tmp_dir, carry_initial_prompt=bool(transcript_prompt))
 
-        print("Parsing word timestamps...")
-        words = parse_wts(wts_path)
+            print("Parsing word timestamps...")
+            words = parse_wts(wts_path)
         print(f"  {len(words)} words found")
 
         chunks = chunk_words(words, args.words)
