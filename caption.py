@@ -50,9 +50,10 @@ CAPTION_POSITION = "bottom"  # top, center, or bottom
 
 # ---------------------------------------------------------------------------
 # Compound word merges
-# whisper.cpp tokenizes some words at subword boundaries. Add entries here
-# as you encounter new ones. Each entry is a list of lowercase tokens that
-# should be joined (without spaces) into a single word.
+# Subword tokens ("Cloud"+"fl"+"are") are joined automatically in parse_wts()
+# using whisper's own word-boundary spaces. This list is only a fallback for
+# words whisper actually heard as two words (" Cloud" " flare"). Each entry is
+# a list of lowercase words that should be joined (without spaces).
 # ---------------------------------------------------------------------------
 
 COMPOUND_MERGES = [
@@ -258,7 +259,14 @@ def parse_wts(wts_path):
     )
     matches = re.findall(pattern, unescaped)
 
-    raw_tokens = []
+    # whisper.cpp marks the start of a word with a literal space before the token
+    # (after the "> " prefix and the "\\ " padding). Tokens without one continue the
+    # previous word: "Cloud"+"fl"+"are", "Wr"+"angle"+"r", "it"+"’s", "world"+",".
+    # This holds across whisper segment boundaries too, where a word can be split
+    # between the end of one segment and the start of the next.
+    TOKEN = re.compile(r"^> ((?:\\ )*)(.*)$")
+
+    words = []
     seen = set()
 
     for raw_text, start, end in matches:
@@ -269,11 +277,14 @@ def parse_wts(wts_path):
             continue
 
         before_pipe = raw_text.split("|")[0]
-        tokens = [t for t in before_pipe.split() if t not in (">", "\\", "")]
-        if not tokens:
-            continue
-
-        word = tokens[-1].lstrip(">\"")
+        m = TOKEN.match(before_pipe)
+        if m:
+            starts_word = m.group(2).startswith(" ")
+            word = m.group(2).strip().lstrip("\"")
+        else:
+            starts_word = True
+            parts = before_pipe.split()
+            word = parts[-1].lstrip(">\"") if parts else ""
         if not word:
             continue
 
@@ -282,41 +293,35 @@ def parse_wts(wts_path):
             continue
         seen.add(key)
 
-        raw_tokens.append({"word": word, "start": float(start), "end": float(end)})
+        if starts_word or not words:
+            words.append({"word": word, "start": float(start), "end": float(end)})
+        else:
+            words[-1]["word"] += word
+            words[-1]["end"] = float(end)
 
-    # Merge compound words split by whisper's tokenizer (e.g. Cloud+fl+are → Cloudflare)
+    # Fallback for words whisper actually heard as separate words (e.g. " Cloud" " flare").
     for compound in COMPOUND_MERGES:
         i = 0
         merged = []
-        while i < len(raw_tokens):
+        while i < len(words):
             seq_len = len(compound)
-            if i + seq_len <= len(raw_tokens):
-                window = [t["word"].lower().rstrip(".,!?;:") for t in raw_tokens[i:i+seq_len]]
+            if i + seq_len <= len(words):
+                window = [t["word"].lower().rstrip(".,!?;:") for t in words[i:i+seq_len]]
                 if window == compound:
-                    joined = "".join(t["word"] for t in raw_tokens[i:i+seq_len])
+                    joined = "".join(t["word"] for t in words[i:i+seq_len])
                     merged.append({
                         "word": joined,
-                        "start": raw_tokens[i]["start"],
-                        "end":   raw_tokens[i+seq_len-1]["end"],
+                        "start": words[i]["start"],
+                        "end":   words[i+seq_len-1]["end"],
                     })
                     i += seq_len
                     continue
-            merged.append(raw_tokens[i])
+            merged.append(words[i])
             i += 1
-        raw_tokens = merged
+        words = merged
 
-    # Merge trailing punctuation and contraction suffixes into preceding word
-    TRAILING_PUNCT = re.compile(r'^[,\.!\?;:\-]+$')
-    CONTRACTION    = re.compile(r"^['\u2018\u2019][a-zA-Z]{1,2}$")  # 't, 's, 're, 've, 'll, 'd, 'm — straight or curly apostrophe
-
-    words = []
-    for tok in raw_tokens:
-        w = tok["word"]
-        if (TRAILING_PUNCT.match(w) or CONTRACTION.match(w)) and words:
-            words[-1]["word"] += w
-            words[-1]["end"] = tok["end"]
-        elif re.search(r"[A-Za-z0-9]", w):
-            words.append(tok)
+    # Drop tokens with no letters or digits (stray punctuation that started a "word").
+    words = [w for w in words if re.search(r"[A-Za-z0-9]", w["word"])]
 
     return words
 

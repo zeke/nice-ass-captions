@@ -2,13 +2,15 @@
 
 Instructions for agents working with this repo.
 
+Revise this file whenever you change the pipeline, CLI flags, parsing rules, or anything else an agent would need to know.
+
 ## What this repo does
 
 `caption.py` burns word-highlighted captions into a video. Full pipeline:
 
 1. Extract 16kHz mono WAV (ffmpeg)
 2. Transcribe with word-level timestamps (whisper-cli --dtw --output-words)
-3. Parse .wts bash script → merge compound words, contractions, punctuation
+3. Parse .wts bash script → join subword tokens into words using whisper's leading-space word boundaries
 4. Generate ASS subtitle file with rounded box + per-word alpha animations
 5. Burn ASS into video (ffmpeg-full with libass)
 
@@ -63,11 +65,20 @@ These are the main knobs. Edit them directly:
 | `MIN_CONTRAST` | top of file | Minimum contrast ratio for `--colorize` |
 | `WORDS_PER_CHUNK` | top of file | Words per line — 4-6 is the sweet spot |
 | `CAPTION_POSITION` | top of file | Default caption placement: `top`, `center`, or `bottom` |
-| `COMPOUND_MERGES` | top of file | Token sequences to join (see below) |
+| `COMPOUND_MERGES` | top of file | Fallback: separate words to join (see below) |
 
-## Extending COMPOUND_MERGES
+## Word boundaries and COMPOUND_MERGES
 
-whisper.cpp sometimes splits compound words at subword boundaries. Add entries as you find them:
+whisper.cpp emits subword tokens ("Cloud"+"fl"+"are", "Wr"+"angle"+"r", "it"+"’s").
+In the `.wts` file, a token that starts a new word has a literal space before it, after
+the `> ` prefix and the `\ ` padding (`> \ \ \  Cloud|`). A token that continues the
+previous word doesn't (`> \ \ \ \ fl|`). `parse_wts()` uses that space to join tokens,
+including words split across two whisper segments (`replace Wr` / `angler.`). Never strip
+that leading space before deciding word boundaries; doing so is what caused "Cloud fl are"
+and "Wr angle r" captions and the ever-growing merge list.
+
+`COMPOUND_MERGES` is now only a fallback for words whisper actually heard as two
+separate words (`" Cloud"` `" flare"`). Don't add subword splits to it:
 
 ```python
 COMPOUND_MERGES = [
@@ -167,11 +178,11 @@ Install: `brew install ffmpeg-full` (the standard `ffmpeg` formula doesn't inclu
 **"0 words found" after parse_wts**
 The .wts regex failed to match. Run with `--keep-tmp`, inspect the `.wts` file, and check if whisper output format has changed.
 
-**Word appearing split (e.g. "Cloud fl are")**
-Add it to `COMPOUND_MERGES` in `caption.py`. Also try `--prompt` with the correct spelling.
-
-**Apostrophe appearing as separate token ("don ' t")**
-The contraction regex handles `'t`, `'s`, `'re`, `'ve`, `'ll`, `'d`, `'m`. If a new pattern appears, extend the `CONTRACTION` regex in `parse_wts()`.
+**Word appearing split (e.g. "Cloud fl are", "don ' t")**
+This should not happen with subword tokens anymore. Run with `--keep-tmp` and check the
+`.wts`: if the continuation token has a leading space, whisper heard two words, so add a
+`COMPOUND_MERGES` entry or pass the correct spelling via `--transcript`/`--prompt`. If it
+has no leading space, `parse_wts()`'s boundary detection is broken; fix that, not the list.
 
 ## Video resolution
 
