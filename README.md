@@ -17,7 +17,7 @@ Burn stylish captions into videos using [whisper](https://github.com/ggml-org/wh
 
 1. **Extract audio** — [ffmpeg](https://ffmpeg.org) pulls a 16kHz mono WAV from the input video
 2. **Transcribe** — [whisper-cli](https://github.com/ggml-org/whisper.cpp) transcribes the audio with word-level timestamps via DTW forced alignment, writing a `.wts` script with per-word timing windows
-3. **Parse and normalize** — the `.wts` is parsed to extract word timestamps; contractions, punctuation, and compound proper nouns (e.g. "Cloudflare") are merged into single tokens
+3. **Parse and normalize** — the `.wts` is parsed to extract word timestamps; subword tokens are joined into whole words using whisper's own word-boundary markers, so "Cloudflare" never shows up as `Cloud fl are`
 4. **Generate ASS** — words are grouped into ~5-word chunks; each chunk becomes one [ASS](#the-ass-format) `Dialogue` line using `\1a` alpha animations and zero-duration `\t()` transitions to highlight the active word; the background is a `\p1` vector-drawn rounded rectangle
 5. **Burn in** — [ffmpeg](https://ffmpeg.org) with [libass](https://github.com/libass/libass) renders the ASS onto the video frames via the `subtitles=` video filter
 
@@ -220,7 +220,7 @@ Colors use ASS format: `&HAABBGGRR` where `AA` is alpha (`00` = opaque, `FF` = t
 
 ## Compound word merges
 
-whisper.cpp occasionally splits compound words at subword boundaries (e.g. "Cloudflare" → `Cloud` + `fl` + `are`). The `COMPOUND_MERGES` list in `caption.py` handles known cases. Add entries for proper nouns specific to your content:
+whisper.cpp emits subword tokens (e.g. "Cloudflare" → `Cloud` + `fl` + `are`), and nice-ass-captions joins them automatically. Occasionally whisper hears one word as two separate words (`Cloud flare`). The `COMPOUND_MERGES` list in `caption.py` handles those cases. Add entries for proper nouns specific to your content:
 
 ```python
 COMPOUND_MERGES = [

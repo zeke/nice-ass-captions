@@ -85,41 +85,66 @@ def test_chunk_words_groups_and_bounds():
 
 
 # ---------------------------------------------------------------------------
-# .wts parsing (compound merge, punctuation merge, dedup)
+# .wts parsing (word boundaries, compound merge, dedup)
 # ---------------------------------------------------------------------------
 
-# Mirrors the real whisper.cpp .wts drawtext format: the active word sits before a
-# "|", prefixed with "> " and surrounded by backslash-space padding tokens.
+# Mirrors the real whisper.cpp .wts drawtext format: the active token sits before a
+# "|", prefixed with "> " and backslash-space padding. A token that starts a new word
+# has a literal space before it; a token that continues the previous word doesn't.
 WTS_LINE = (
     "drawtext=fontfile='/f.ttf':fontsize=24:fontcolor=lightgreen:"
     "x=(w-text_w)/2+8:y=h/2:"
-    r"text='> \ \ {word}|\ \ \ ':"
+    r"text='> {pad}{word}|\ \ \ ':"
     "enable='between(t,{start},{end})'"
 )
 
 
 def _wts(tokens):
     return ",".join(
-        WTS_LINE.format(word=w, start=f"{s:.2f}", end=f"{e:.2f}") for w, s, e in tokens
+        WTS_LINE.format(pad=r"\ " * i, word=w, start=f"{s:.2f}", end=f"{e:.2f}")
+        for i, (w, s, e) in enumerate(tokens)
     )
 
 
-def test_parse_wts_compound_and_punct_and_dedup(tmp_path):
-    tokens = [
-        ("Cloud", 0.00, 0.10),
-        ("fl", 0.10, 0.20),
-        ("are", 0.20, 0.30),
-        ("are", 0.20, 0.30),   # duplicate (word, start) -> deduped before merge
-        ("world", 0.30, 0.50),
-        (",", 0.50, 0.55),
-    ]
+def _parse(tmp_path, tokens):
     path = tmp_path / "t.wts"
     path.write_text(_wts(tokens), encoding="utf-8")
+    return caption.parse_wts(str(path))
+
+
+def test_parse_wts_joins_subword_tokens_and_punct(tmp_path):
+    words = _parse(tmp_path, [
+        (" Cloud", 0.00, 0.10),
+        ("fl", 0.10, 0.20),
+        ("are", 0.20, 0.30),
+        ("are", 0.20, 0.30),   # duplicate (word, start) -> deduped
+        ("’s", 0.30, 0.35),
+        (" world", 0.35, 0.50),
+        (",", 0.50, 0.55),
+    ])
+    assert [w["word"] for w in words] == ["Cloudflare’s", "world,"]
+    assert words[0]["start"] == 0.0 and words[0]["end"] == 0.35
+    assert words[1]["end"] == 0.55
+
+
+def test_parse_wts_joins_words_split_across_segments(tmp_path):
+    # Real case: whisper ended one segment on "Wr" and started the next with
+    # "angle" (no leading space), then "r", then ".".
+    path = tmp_path / "t.wts"
+    first = WTS_LINE.format(pad=r"\ " * 3, word=" Wr", start="4.00", end="4.23")
+    second = WTS_LINE.format(pad="", word="angle", start="4.23", end="4.40")
+    third = WTS_LINE.format(pad=r"\ " * 5, word="r", start="4.40", end="4.50")
+    fourth = WTS_LINE.format(pad=r"\ " * 6, word=".", start="4.50", end="4.55")
+    path.write_text(",".join([first, second, third, fourth]), encoding="utf-8")
 
     words = caption.parse_wts(str(path))
-    assert [w["word"] for w in words] == ["Cloudflare", "world,"]
-    assert words[0]["start"] == 0.0 and words[0]["end"] == 0.30
-    assert words[1]["end"] == 0.55
+    assert [w["word"] for w in words] == ["Wrangler."]
+    assert words[0]["start"] == 4.0 and words[0]["end"] == 4.55
+
+
+def test_parse_wts_compound_merges_still_apply_to_separate_words(tmp_path):
+    words = _parse(tmp_path, [(" Cloud", 0.0, 0.1), (" flare", 0.1, 0.2), (" rocks", 0.2, 0.3)])
+    assert [w["word"] for w in words] == ["Cloudflare", "rocks"]
 
 
 # ---------------------------------------------------------------------------
